@@ -6,7 +6,7 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`), the clock (`src/core/Clock`), the random draws (`src/core/Random`) and pitch (`src/core/Pitch`) are done. "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`), the clock (`src/core/Clock`), the random draws (`src/core/Random`), pitch (`src/core/Pitch`), velocity and length (`src/core/Shape`) and Cloud's logic (`src/core/Cloud`) are done: phase 1 is complete. "NoteGran" is a working name.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -139,6 +139,11 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
   transport stopping and jumps; the caller ends notes.
 - `Onset random` (0 to 1, as BufferGran's): 0 is evenly spaced, 1 is Poisson "dust". In Beats mode, 0
   lands exactly on the grid.
+- **As built (2026-10-21): onsets per slot.** With Onset random r, each slot of the rate is, with
+  chance r, dust (a Poisson(1) count of grains, each at a uniform place in the slot), and otherwise
+  one grain, up to r of the way into it. At 0, one grain on each slot; at 1, exactly a Poisson process;
+  the mean rate is the same throughout. All keyed on the slot (Timing draws 0, 1, 2 + j), so it's
+  seekable; grain j of slot n is index n · 16 + j for its other draws.
 
 ### Pitch
 
@@ -180,10 +185,12 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
 - `Voices` (1 to 32, **default 8**): at most this many notes sound at once, in every plugin (Chords'
   notes too). What a new note over the limit does is `When full`, below.
   The owned-note table has 1024 slots anyway: memory only, never voices.
-- `When full` (decided 2026-10-21), in every plugin: **Skip** (the default: the new note isn't
-  played) | **Steal** (the oldest ends first). Skip keeps grains whole and thins a dense cloud; Steal
-  keeps the newest notes, but at a high density cuts every grain short. Either way a sounding key
-  struck again replaces itself (the same-key rule), so it's never skipped.
+- `When full` (decided 2026-10-21), in every plugin: **Skip** (the default) | **Steal**. Skip
+  never cuts a note short: a new note isn't played if Voices are all sounding, or if its key is
+  sounding on that channel (MIDI 1.0's nearest key, mostly). Steal ends the oldest first, and
+  strikes a sounding key again (the same-key rule). Skip keeps grains whole and thins a dense cloud;
+  Steal keeps the newest notes, but at a high density cuts every grain short. (Built first with the
+  same-key strike always allowed, Skip played as many grains as Steal in MIDI 1.0 with a small set.)
 - **The same key twice:** if a key is already sounding on that channel, the old one's note-off goes
   just before the new note-on (StageHand's sequence rule).
 - `reset()`, All Notes Off and All Sound Off on input, deactivating, and the transport stopping (Beats
@@ -238,6 +245,15 @@ since it proves the set and the core with the least of its own.
   random and Scatter, it thins out into a cloud. That range in one plugin is the point.
 - With a trigger channel, each trigger note-on makes one pick (Density is then ignored), its velocity
   times the member's.
+- **Built as core logic in phase 1 (`CloudCore`, 2026-10-21):** inputs (time-sorted, each marked to
+  pass through or not) and a transport in, `NoteEvent`s out; phase 2 only wraps it in CLAP. Picks see
+  the set in a fixed order (pitch, then arrival; Played by arrival), never its storage order. Random
+  doesn't move the ordered picks' place. Tested end to end: any block size gives the same notes, Free
+  and Beats, with and without a host timeline; the same seed the same notes; all three dialects;
+  notes end on release, All Notes Off and a transport stop; Voices and When full; triggers; Dry.
+- **Dry and keys:** a MIDI 2.0 grain avoids keys the set is holding on its channel. A MIDI 1.0 grain
+  can still land on a dry note's key, which the plugin doesn't own and can't end first (open question
+  9).
 
 ## NoteGran Chords (phase 3)
 
@@ -442,3 +458,6 @@ position, turning each `NoteEvent` into its own events.
 8. **In StageHand:** it drops a plugin's wildcard notes and note expressions
    (`StageHand/docs/midi-effects.md`). NoteGran sends neither, except CLAP-dialect tuning expressions,
    which only matter when the input is CLAP notes. Check that before phase 2.
+9. **Dry in MIDI 1.0:** a grain on the same key and channel as a dry (passed-through) note confuses
+   the synth's note matching. Options: skip such a grain, move it to the next key (wrong pitch), or
+   send grains on another channel. (Proposed: skip.)

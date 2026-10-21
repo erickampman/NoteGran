@@ -4,15 +4,19 @@
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
+#include <functional>
+#include <memory>
 #include <tuple>
 #include <utility>
 #include <vector>
 
 #include "core/Clock.h"
+#include "core/Cloud.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
 #include "core/Pitch.h"
 #include "core/Random.h"
+#include "core/Shape.h"
 #include "uw/ump/Ump.h"
 
 using namespace notegran;
@@ -130,6 +134,7 @@ void testHeld() {
 
 void testSameKey() {
     OwnedNotes t;
+    t.setWhenFull(WhenFull::Steal);
     Out o(8);
     const NoteId a = t.start(note(0, 1000, 60), o.out);
     o.out.clear();
@@ -211,9 +216,11 @@ void testSkip() {
     CHECK(t.start(note(2, 1000, 64), o.out) == 0);  // full: skipped, nothing sent, both whole
     CHECK(o.out.size() == 0 && t.size() == 2 && t.sounding(0, 0, 60) && t.sounding(0, 0, 62));
 
-    // A sounding key struck again replaces itself: never skipped.
-    CHECK(t.start(note(3, 1000, 62), o.out) != 0);
-    CHECK(o.out.size() == 2 && isOff(o.out[0], 3, 62) && isOn(o.out[1], 3, 62));
+    // A sounding key struck again is skipped too, even under the limit: nothing is cut short.
+    t.setVoices(4);
+    CHECK(t.start(note(3, 1000, 62), o.out) == 0);
+    CHECK(o.out.size() == 0 && t.size() == 2);
+    t.setVoices(2);
 
     // A note that ends at the new one's time makes room for it.
     OwnedNotes u;
@@ -1117,6 +1124,351 @@ void testChooseKey() {
     CHECK(chooseKey(-500, Dialect::Midi2, none).pitch79 == 0);
 }
 
+
+// --- velocity and length ------------------------------------------------------------------
+
+void testShape() {
+    const Random r(3);
+    CHECK(toQ16(1.0) == kOne16 && toQ16(0.5) == kOne16 / 2 && toQ16(-1.0) == 0 && toQ16(9.0) == 4 * kOne16);
+    CHECK(grainVelocity(0x8000, kOne16, 0, 0xFFFF, r, 0) == 0x8000);
+    CHECK(grainVelocity(0x8000, 2 * kOne16, 0, 0xFFFF, r, 0) == 0xFFFF);   // clamped
+    CHECK(grainVelocity(0x8000, 0, 0, 0xFFFF, r, 0) == 1);                 // never 0
+    CHECK(grainVelocity(0x8000, kOne16, 0, 0x8000, r, 0) == 0x4000);       // a trigger's velocity
+    std::int64_t sum = 0;
+    for (std::int64_t i = 0; i < 20000; ++i) {
+        const std::uint16_t v = grainVelocity(0x8000, kOne16, kOne16 / 2, 0xFFFF, r, i);
+        CHECK(v >= 0x4000 && v <= 0xC000);
+        sum += v;
+    }
+    CHECK(sum / 20000 > 0x8000 - 300 && sum / 20000 < 0x8000 + 300);
+    for (std::int64_t i = 0; i < 20000; ++i) {
+        const std::int64_t len = grainLength(1000, kOne16 / 2, r, i);
+        CHECK(len >= 500 && len <= 1500);
+    }
+    CHECK(grainLength(1000, 0, r, 0) == 1000);
+    CHECK(grainLength(0, 0, r, 0) == 1);
+    CHECK(velocity7(100) == 1 && velocity7(0xFFFF) == 127 && velocity7(0x8000) == 64);
+}
+
+// --- Cloud --------------------------------------------------------------------------------
+
+using TransportFn = std::function<const Transport*(std::int64_t, Transport&)>;
+
+struct CloudRun {
+    std::vector<NoteEvent> events;
+    std::vector<bool>      passed;   // per input
+};
+
+CloudInput input(std::int64_t time, const uw::MidiMessage& m, Dialect d = Dialect::Midi2) {
+    CloudInput in;
+    in.time    = time;
+    in.message = m;
+    in.dialect = uw::ump::messageType(m) == uw::ump::MessageType::Midi1ChannelVoice ? Dialect::Midi1 : d;
+    return in;
+}
+
+// Runs a Cloud over [0, length) in blocks of random sizes (or one block), feeding each block its
+// inputs, and collects everything it sends.
+CloudRun runCloud(const CloudParams& params, std::vector<CloudInput> inputs, std::int64_t length, bool oneBlock,
+                  const TransportFn& transport = nullptr, std::uint32_t sizesSeed = 777) {
+    auto core = std::make_unique<CloudCore>();
+    core->setSampleRate(48000.0);
+    core->setParams(params);
+    CloudRun               run;
+    std::vector<NoteEvent> buffer(8192);
+    Sizes                  sizes;
+    sizes.lcg      = sizesSeed;
+    std::size_t in = 0;
+    for (std::int64_t start = 0; start < length;) {
+        const std::int64_t frames = oneBlock ? length : std::min(sizes.next(), length - start);
+        std::size_t        first  = in;
+        while (in < inputs.size() && inputs[in].time < start + frames) ++in;
+        NoteOut          out(buffer.data(), buffer.size());
+        Transport        t;
+        const Transport* tp = transport ? transport(start, t) : nullptr;
+        core->process(start, frames, tp, inputs.data() + first, in - first, out);
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            CHECK(out[i].time >= start && out[i].time < start + frames);
+            run.events.push_back(out[i]);
+        }
+        start += frames;
+    }
+    for (const CloudInput& i : inputs) run.passed.push_back(i.pass);
+    return run;
+}
+
+bool sameEvents(const std::vector<NoteEvent>& a, const std::vector<NoteEvent>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const NoteEvent& x = a[i];
+        const NoteEvent& y = b[i];
+        if (x.time != y.time || x.on != y.on || x.group != y.group || x.channel != y.channel || x.key != y.key ||
+            x.dialect != y.dialect || x.pitch79 != y.pitch79 || x.velocity != y.velocity)
+            return false;
+    }
+    return true;
+}
+
+std::vector<NoteEvent> ons(const std::vector<NoteEvent>& events) {
+    std::vector<NoteEvent> v;
+    for (const NoteEvent& e : events)
+        if (e.on) v.push_back(e);
+    return v;
+}
+
+// What a synth sees: no key struck while it sounds, no off for a key that isn't, never more than
+// `voices` at once, and (if `ended`) nothing left sounding.
+void checkPlayable(const std::vector<NoteEvent>& events, int voices, bool ended) {
+    std::vector<bool> on(16 * 16 * 128, false);
+    int               sounding = 0;
+    std::int64_t      last     = 0;
+    for (const NoteEvent& e : events) {
+        CHECK(e.time >= last);
+        last = e.time;
+        const std::size_t k = (static_cast<std::size_t>(e.group) * 16 + e.channel) * 128 + e.key;
+        if (e.on) {
+            CHECK(!on[k]);
+            on[k] = true;
+            CHECK(++sounding <= voices);
+        } else {
+            CHECK(on[k]);
+            on[k] = false;
+            --sounding;
+        }
+    }
+    if (ended) CHECK(sounding == 0);
+}
+
+CloudParams arp(Pick pick) {
+    CloudParams p;
+    p.sync        = Clock::Mode::Beats;
+    p.divisionNum = 4;              // sixteenths at 120 BPM: 6000 samples
+    p.lengthBeats = kBeat / 8;      // 3000 samples
+    p.pick        = pick;
+    return p;
+}
+
+void testCloudArpeggio() {
+    // Played in E, C, G order.
+    const std::vector<CloudInput> chord = {input(0, on1(64)), input(0, on1(60)), input(0, on1(67))};
+    struct Case { Pick pick; std::vector<int> keys; };
+    const Case cases[] = {
+        {Pick::Up, {60, 64, 67, 60, 64, 67, 60, 64}},
+        {Pick::Down, {67, 64, 60, 67, 64, 60, 67, 64}},
+        {Pick::UpDown, {60, 64, 67, 64, 60, 64, 67, 64}},
+        {Pick::Played, {64, 60, 67, 64, 60, 67, 64, 60}},
+    };
+    for (const Case& c : cases) {
+        const CloudRun run = runCloud(arp(c.pick), chord, 48000, false);
+        const auto     on  = ons(run.events);
+        CHECK(on.size() == 8);
+        for (std::size_t i = 0; i < on.size() && i < c.keys.size(); ++i) {
+            CHECK(on[i].time == static_cast<std::int64_t>(i) * 6000);
+            CHECK(on[i].key == c.keys[i] && on[i].dialect == Dialect::Midi1);
+        }
+        checkPlayable(run.events, 8, false);
+        for (const NoteEvent& e : run.events)
+            if (!e.on) CHECK(e.time % 6000 == 3000);
+    }
+
+    // The ordered picks keep their place when the set changes: after 64, with 62 added, 67 is next.
+    std::vector<CloudInput> changing = chord;
+    changing.push_back(input(9000, on1(62)));
+    const auto on = ons(runCloud(arp(Pick::Up), changing, 30000, false).events);
+    CHECK(on.size() == 5 && on[0].key == 60 && on[1].key == 64 && on[2].key == 67 && on[3].key == 60 &&
+          on[4].key == 62);
+}
+
+std::vector<CloudInput> busyInput() {
+    // A changing set, MIDI 2.0 with fractions, a per-note bend and a release.
+    return {input(0, on2(60, 0x9000, st(60.25))),
+            input(0, on2(63, 0x5000, st(63.4))),
+            input(1000, on2(67, 0xF000)),
+            input(30000, m2(0x6, 0, 63, 0, 0xA0000000u)),
+            input(48000, off2(60)),
+            input(96000, on2(70, 0x7000, st(70.1))),
+            input(150000, off2(63)),
+            input(200000, off2(67)),
+            input(240000, off2(70))};
+}
+
+CloudParams busyParams(Clock::Mode sync) {
+    CloudParams p;
+    p.sync           = sync;
+    p.density        = 25.0;
+    p.divisionNum    = 6;
+    p.lengthMs       = 80.0;
+    p.lengthBeats    = kBeat / 5;
+    p.onsetRandom    = toQ16(0.6);
+    p.pick           = Pick::Random;
+    p.weight         = toQ16(0.5);
+    p.pitch.octaves  = 1;
+    p.pitch.scatter  = st(3);
+    p.velSpread      = toQ16(0.3);
+    p.lenSpread      = toQ16(0.5);
+    p.voices         = 6;
+    p.seed           = 4242;
+    return p;
+}
+
+void testCloudRepeatable() {
+    const TransportFn hostAt = [](std::int64_t s, Transport& t) { return host(s, t, 0); };
+    for (Clock::Mode sync : {Clock::Mode::Free, Clock::Mode::Beats}) {
+        for (bool withHost : {false, true}) {
+            if (withHost && sync == Clock::Mode::Free) continue;
+            const CloudParams p   = busyParams(sync);
+            const TransportFn tf  = withHost ? hostAt : nullptr;
+            const CloudRun    one = runCloud(p, busyInput(), 288000, true, tf);
+            const CloudRun    a   = runCloud(p, busyInput(), 288000, false, tf, 777);
+            const CloudRun    b   = runCloud(p, busyInput(), 288000, false, tf, 31337);
+            CHECK(ons(one.events).size() > 50);
+            // Any block sizes, the same notes. (With the host's rounded positions, only notes sent
+            // from the host's position can differ by a sample; this host is exact at 0 wobble.)
+            CHECK(sameEvents(one.events, a.events));
+            CHECK(sameEvents(one.events, b.events));
+            checkPlayable(one.events, p.voices, true);
+
+            // The same seed, the same notes; another seed, others.
+            CloudParams q = p;
+            q.seed        = 4243;
+            CHECK(sameEvents(runCloud(p, busyInput(), 288000, false, tf).events, one.events));
+            CHECK(!sameEvents(runCloud(q, busyInput(), 288000, true, tf).events, one.events));
+        }
+    }
+}
+
+void testCloudOnsets() {
+    CloudParams p;
+    p.density  = 20.0;              // a slot every 2400 samples
+    p.lengthMs = 1.0;
+    p.voices   = 32;
+    const std::vector<CloudInput> held = {input(0, on1(60))};
+
+    // Onset random 0: exactly on the grid.
+    auto on = ons(runCloud(p, held, 48000, false).events);
+    CHECK(on.size() == 20);
+    for (std::size_t i = 0; i < on.size(); ++i) CHECK(on[i].time == static_cast<std::int64_t>(i) * 2400);
+
+    // 1: dust, at the same mean rate (2000 in 100 s), some slots empty and some with several.
+    p.onsetRandom = kOne16;
+    on            = ons(runCloud(p, held, 4800000, false).events);
+    CHECK(on.size() > 1900 && on.size() < 2100);
+    // Halfway: still the same mean rate.
+    p.onsetRandom = kOne16 / 2;
+    on            = ons(runCloud(p, held, 4800000, false).events);
+    CHECK(on.size() > 1900 && on.size() < 2100);
+}
+
+void testCloudSetChangeFirst() {
+    CloudParams p;
+    p.density  = 20.0;
+    p.lengthMs = 1.0;
+    // A note-on at a slot's sample plays at once; a note-off at one stops it (hold-over 0).
+    p.holdOverMs = 0.0;
+    auto on = ons(runCloud(p, {input(2400, on1(60)), input(7200, off1(60))}, 12000, false).events);
+    CHECK(on.size() == 2 && on[0].time == 2400 && on[1].time == 4800);
+    // With hold-over, a sequence's re-strike at the slot doesn't drop a grain.
+    p.holdOverMs = 20.0;
+    on = ons(runCloud(p, {input(0, on1(60)), input(4800, off1(60)), input(4800, on1(60))}, 12000, false).events);
+    CHECK(on.size() == 5);
+}
+
+void testCloudTriggers() {
+    CloudParams p;
+    p.triggerChannel = 9;
+    p.lengthMs       = 10.0;
+    const CloudRun run = runCloud(p,
+                                  {input(0, on2(60, 0x8000)), input(100, on2(36, 0x8000, 0, 9)),
+                                   input(200, off2(36, 9)), input(5000, on2(36, 0xFFFF, 0, 9)),
+                                   input(6000, m1(0xB, 0, 7, 100))},
+                                  48000, false);
+    const auto on = ons(run.events);
+    CHECK(on.size() == 2);   // one grain per trigger strike, none from Density
+    CHECK(on.size() == 2 && on[0].time == 100 && on[1].time == 5000);
+    CHECK(on.size() == 2 && on[0].velocity == 0x4000 && on[1].velocity == 0x8000);
+    CHECK(run.passed == std::vector<bool>({false, false, false, false, true}));
+}
+
+void testCloudDialects() {
+    CloudParams p;
+    p.density         = 10.0;
+    p.lengthMs        = 1.0;
+    p.pitch.transpose = st(0.3);
+    auto on = ons(runCloud(p, {input(0, on1(60))}, 4800, true).events);
+    CHECK(on.size() == 1 && on[0].dialect == Dialect::Midi1 && on[0].key == 60 && on[0].pitch79 == st(60));
+    on = ons(runCloud(p, {input(0, on2(60, 0x8000, st(60.25)))}, 4800, true).events);
+    CHECK(on.size() == 1 && on[0].dialect == Dialect::Midi2 && on[0].key == 61 && on[0].pitch79 == st(60.55));
+    on = ons(runCloud(p, {input(0, on2(60, 0x8000), Dialect::Clap)}, 4800, true).events);
+    CHECK(on.size() == 1 && on[0].dialect == Dialect::Clap && on[0].pitch79 == st(60.3));
+    // Output goes on the group and channel of its member.
+    on = ons(runCloud(p, {input(0, on2(60, 0x8000, 0, 5, 3))}, 4800, true).events);
+    CHECK(on.size() == 1 && on[0].group == 3 && on[0].channel == 5);
+}
+
+void testCloudEnds() {
+    CloudParams p;
+    p.density  = 50.0;
+    p.lengthMs = 300.0;              // long notes, still sounding when things stop
+    p.voices   = 8;
+    p.whenFull = WhenFull::Steal;
+
+    // The set released: the notes play out and end.
+    CloudRun run = runCloud(p, {input(0, on1(60)), input(0, on1(64)), input(24000, off1(60)), input(24000, off1(64))},
+                            96000, false);
+    checkPlayable(run.events, 8, true);
+    CHECK(run.passed == std::vector<bool>({false, false, false, false}));   // not Dry
+
+    // All Notes Off ends them at once, and passes through.
+    run = runCloud(p, {input(0, on1(60)), input(20000, m1(0xB, 0, 123, 0))}, 30000, false);
+    checkPlayable(run.events, 8, true);
+    CHECK(run.events.back().time == 20000 && run.passed[1]);
+
+    // The transport stopping ends them at the next block, and clears the set.
+    const TransportFn stops = [](std::int64_t s, Transport& t) -> const Transport* {
+        host(s, t, 0);
+        t.playing = s < 24000;
+        return &t;
+    };
+    CloudParams b = p;
+    b.sync        = Clock::Mode::Beats;
+    run           = runCloud(b, {input(0, on1(60))}, 96000, false, stops);
+    checkPlayable(run.events, 8, true);
+    for (const NoteEvent& e : run.events) CHECK(!e.on || e.time < 24000 + 2048);
+
+    // Dry: set notes pass through, and a MIDI 2.0 grain avoids their keys.
+    CloudParams d = p;
+    d.dry         = true;
+    d.voices      = 1;
+    d.density     = 10.0;
+    d.lengthMs    = 1.0;
+    run           = runCloud(d, {input(0, on2(60, 0x8000)), input(2000, m1(0xB, 0, 7, 1))}, 4800, true);
+    CHECK(run.passed == std::vector<bool>({true, true}));
+    const auto on = ons(run.events);
+    CHECK(on.size() == 1 && on[0].key != 60 && on[0].pitch79 == st(60));
+
+    // Busy while notes sound or a set is held.
+    CloudCore core;
+    core.setSampleRate(48000.0);
+    core.setParams(p);
+    CHECK(!core.busy());
+}
+
+void testCloudVoices() {
+    CloudParams p;
+    p.density  = 100.0;
+    p.lengthMs = 200.0;              // 20 grains' worth sounding at once, if they could
+    p.voices   = 3;
+    for (WhenFull w : {WhenFull::Skip, WhenFull::Steal}) {
+        p.whenFull       = w;
+        const CloudRun r = runCloud(p, {input(0, on1(60)), input(0, on1(64)), input(0, on1(67))}, 96000, false);
+        checkPlayable(r.events, 3, false);
+        const auto on = ons(r.events);
+        // Skip: whole grains, so few; Steal: a grain every slot.
+        if (w == WhenFull::Skip) CHECK(on.size() < 40);
+        if (w == WhenFull::Steal) CHECK(on.size() >= 199);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1151,6 +1503,15 @@ int main() {
     testQuantizeEdo();
     testQuantizeSet();
     testChooseKey();
+    testShape();
+    testCloudArpeggio();
+    testCloudRepeatable();
+    testCloudOnsets();
+    testCloudSetChangeFirst();
+    testCloudTriggers();
+    testCloudDialects();
+    testCloudEnds();
+    testCloudVoices();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

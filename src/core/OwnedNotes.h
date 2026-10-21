@@ -9,9 +9,9 @@
 
 // The owned-note table (PLAN.md, "Notes always end"): every note the plugin has started and not
 // yet ended, with the time it ends. Its note-offs are the only ones the plugin sends, so none can
-// stick. It also applies `Voices` with `When full` (over the limit, a new note is skipped, or ends
-// the oldest first) and the same-key rule (a key already sounding on that channel is ended just
-// before it's struck again).
+// stick. It also applies `Voices` and `When full`: with Skip, a new note that would cut one short
+// (over the limit, or on a key already sounding on that channel) isn't played; with Steal, the
+// oldest ends first, and a sounding key is ended just before it's struck again (the same-key rule).
 //
 // Fixed size, no allocation: the table is a member array, sized far past what any plugin asks
 // for. Voices are what's scarce (a synth has at most 32, and a part usually wants far fewer), not
@@ -38,8 +38,8 @@ struct NoteStart {
 
 // What a new note does when Voices are all sounding (PLAN.md, "When full").
 enum class WhenFull : std::uint8_t {
-    Skip,    // it isn't played: grains stay whole, a dense cloud thins out
-    Steal,   // the oldest note ends first: the newest notes sound, cut short at high density
+    Skip,    // it isn't played, nor is one on a key that's sounding: no note is cut short
+    Steal,   // the oldest note ends first, and a sounding key is struck again: the newest sound
 };
 
 class OwnedNotes {
@@ -65,10 +65,10 @@ public:
     // The earliest end time of any note, or kHeld if none has one.
     std::int64_t nextEnd() const noexcept;
 
-    // Starts a note, sending first: the notes that end at or before its time, the note on its
-    // key (the same-key rule), and, with Steal, the oldest notes over Voices; then its note-on.
-    // Striking a sounding key again replaces it, so it's never skipped. Returns its id, or 0 if
-    // it isn't started: skipped (Voices full, with Skip), or `out` hasn't room for all of that.
+    // Starts a note, sending first: the notes that end at or before its time and, with Steal, the
+    // note on its key (the same-key rule) and the oldest notes over Voices; then its note-on.
+    // Returns its id, or 0 if it isn't started: skipped (with Skip: Voices full, or its key
+    // sounding), or `out` hasn't room for all of that.
     // Notes ended before then stay ended (their offs were sent).
     NoteId start(const NoteStart& note, NoteOut& out) noexcept;
 

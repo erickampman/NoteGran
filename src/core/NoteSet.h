@@ -75,6 +75,11 @@ public:
     // on). Call before picking at `time`.
     void settle(std::int64_t time) noexcept;
 
+    // Whether a member is this note (Dry: its key is sounding, not as one of the plugin's own).
+    bool holds(std::uint8_t group, std::uint8_t channel, std::uint8_t key) const noexcept {
+        return find(group, channel, key) != static_cast<std::size_t>(-1);
+    }
+
     std::size_t   size() const noexcept { return count_; }
     bool          empty() const noexcept { return count_ == 0; }
     const Member& operator[](std::size_t i) const noexcept { return slots_[i].member; }   // no order

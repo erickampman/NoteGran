@@ -155,6 +155,23 @@ std::int64_t Clock::slotSample(const Grid& grid, std::int64_t n) const noexcept 
     return anchorSample_ + ceilDiv(beats * samplesPerMinuteQ(), i128{grid.count} * tempoQ_ * kBeat);
 }
 
+bool Clock::placeInSlot(const Grid& grid, std::int64_t n, std::int64_t frac, std::int64_t& sample) const noexcept {
+    if (grid.count <= 0) return false;
+    // The position is num / den: in samples (Free) or beat units (Beats).
+    const i128 num = (i128{n} * 65536 + frac) * grid.span;
+    const i128 den = i128{grid.count} * 65536;
+    if (mode_ == Mode::Free) {
+        sample = ceilDiv(num, den);
+        return sample >= start_ && sample < blockEnd();
+    }
+    if (num * samplesPerMinuteQ() < from_ * den) return false;   // before where this block's slots start
+    const i128 beats = num - i128{anchorPos_} * den;               // from the anchor, over den
+    sample           = anchorSample_ + ceilDiv(beats * samplesPerMinuteQ(), den * tempoQ_ * kBeat);
+    if (sample >= blockEnd()) return false;
+    if (sample < start_) sample = start_;
+    return true;
+}
+
 std::int64_t Clock::samplesForMs(double ms) const noexcept {
     if (!(ms > 0.0)) return 1;
     return std::max<std::int64_t>(1, std::llround(ms * static_cast<double>(sampleRate_) / 1000.0));

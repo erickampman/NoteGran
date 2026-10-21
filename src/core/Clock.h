@@ -78,6 +78,21 @@ public:
         }
     }
 
+    // Grains inside slots (Onset random): calls f(n) for every slot that may hold a position in
+    // this block: from the slot the block starts in to the last that starts before its end.
+    template <class F>
+    void slotsAround(const Grid& grid, F&& f) const {
+        if (grid.count <= 0 || frames_ <= 0) return;
+        for (std::int64_t n = firstSlot(grid) - 1;; ++n) {
+            if (slotSample(grid, n) >= blockEnd()) break;
+            f(n);
+        }
+    }
+
+    // The sample of the position `frac` (Q16, 0 .. 65535) of the way through slot n, if it falls
+    // in this block, with the same rule as slots(): each position in exactly one block.
+    bool placeInSlot(const Grid& grid, std::int64_t n, std::int64_t frac, std::int64_t& sample) const noexcept;
+
     // Lengths: milliseconds, or beat units at the current tempo, as a whole number of samples
     // (at least 1).
     std::int64_t samplesForMs(double ms) const noexcept;
