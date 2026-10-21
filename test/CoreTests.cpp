@@ -4,7 +4,9 @@
 #include <cstdio>
 #include <vector>
 
+#include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
+#include "uw/ump/Ump.h"
 
 using namespace notegran;
 
@@ -333,6 +335,290 @@ void testNothingSticks() {
     for (bool b : on) CHECK(!b);
 }
 
+// --- the set ------------------------------------------------------------------------------
+
+uw::MidiMessage msg(std::uint32_t w0, std::uint32_t w1 = 0) {
+    uw::MidiMessage m;
+    m.words[0]  = w0;
+    m.words[1]  = w1;
+    m.wordCount = uw::ump::wordCountForType(static_cast<std::uint8_t>(w0 >> 28));
+    return m;
+}
+
+uw::MidiMessage m1(std::uint8_t status, std::uint8_t channel, std::uint8_t data1, std::uint8_t data2) {
+    return msg(0x20000000u | std::uint32_t(status << 4 | channel) << 16 | std::uint32_t(data1) << 8 | data2);
+}
+
+uw::MidiMessage m2(std::uint8_t status, std::uint8_t channel, std::uint8_t index1, std::uint8_t index2,
+                   std::uint32_t data, std::uint8_t group = 0) {
+    return msg(0x40000000u | std::uint32_t(group) << 24 | std::uint32_t(status) << 20 | std::uint32_t(channel) << 16 |
+                   std::uint32_t(index1) << 8 | index2,
+               data);
+}
+
+uw::MidiMessage on1(std::uint8_t key, std::uint8_t velocity = 100, std::uint8_t channel = 0) {
+    return m1(0x9, channel, key, velocity);
+}
+uw::MidiMessage off1(std::uint8_t key, std::uint8_t channel = 0) { return m1(0x8, channel, key, 0); }
+
+uw::MidiMessage on2(std::uint8_t key, std::uint16_t velocity, std::uint16_t pitch79 = 0, std::uint8_t channel = 0,
+                    std::uint8_t group = 0) {
+    return pitch79 == 0 ? m2(0x9, channel, key, 0, std::uint32_t(velocity) << 16, group)
+                        : m2(0x9, channel, key, 3, std::uint32_t(velocity) << 16 | pitch79, group);
+}
+uw::MidiMessage off2(std::uint8_t key, std::uint8_t channel = 0, std::uint8_t group = 0) {
+    return m2(0x8, channel, key, 0, 0, group);
+}
+
+// The member with this key, or null.
+const Member* member(const NoteSet& s, std::uint8_t key, std::uint8_t channel = 0) {
+    for (std::size_t i = 0; i < s.size(); ++i)
+        if (s[i].key == key && s[i].channel == channel) return &s[i];
+    return nullptr;
+}
+
+void testSetBasics() {
+    NoteSet s;
+    Heard h = s.input(0, on1(60, 100));
+    CHECK(h.kind == Heard::Kind::SetNote && !h.strike && h.key == 60);
+    s.input(0, on2(64, 0x4000, (64 << 9) + 171));
+    s.settle(0);
+    CHECK(s.size() == 2);
+    const Member* a = member(s, 60);
+    const Member* b = member(s, 64);
+    CHECK(a && a->pitch == 60 << 9 && a->dialect == Dialect::Midi1 && a->velocity == uw::ump::scaleUp(100, 7, 16));
+    CHECK(b && b->pitch == (64 << 9) + 171 && b->dialect == Dialect::Midi2 && b->velocity == 0x4000);
+    CHECK(a && b && a->arrival < b->arrival);
+
+    // A set change at the same sample as a pick is applied first.
+    s.input(100, off1(60));
+    s.settle(100);
+    CHECK(s.size() == 1 && member(s, 64));
+
+    // MIDI 1.0 velocity 0 is a note-off; MIDI 2.0 velocity 0 is a note-on.
+    s.input(200, on1(64, 0));
+    s.input(200, on2(67, 0));
+    s.settle(200);
+    CHECK(s.size() == 1 && member(s, 67) && member(s, 67)->velocity == 0);   // 64 was MIDI 2.0: still ended
+
+    // Not a note: passes through, set unchanged.
+    CHECK(s.input(300, m1(0xE, 0, 0, 0x50)).kind == Heard::Kind::Other);   // channel pitch bend
+    CHECK(s.input(300, m1(0xB, 0, 7, 100)).kind == Heard::Kind::Other);    // CC 7
+    CHECK(s.input(300, msg(0x10F80000u)).kind == Heard::Kind::Other);      // clock
+    CHECK(s.size() == 1);
+
+    // A note-off for a note not in the set is still a set note, and changes nothing.
+    CHECK(s.input(300, off1(50)).kind == Heard::Kind::SetNote && s.size() == 1);
+
+    // The plugin layer names the CLAP dialect.
+    s.input(400, on2(70, 0x8000), Dialect::Clap);
+    CHECK(member(s, 70) && member(s, 70)->dialect == Dialect::Clap);
+}
+
+void testHoldOver() {
+    NoteSet s;
+    s.setHoldOver(960);   // 20 ms at 48 kHz
+    s.input(0, on1(60, 100));
+    s.settle(0);
+    const std::uint64_t arrival = member(s, 60)->arrival;
+
+    s.input(1000, off1(60));
+    s.settle(1959);
+    CHECK(member(s, 60));                    // released, but still in for the hold-over
+    s.input(1959, on1(60, 50));              // struck again: no change, new velocity
+    s.settle(5000);
+    CHECK(s.size() == 1 && member(s, 60)->arrival == arrival);
+    CHECK(member(s, 60)->velocity == uw::ump::scaleUp(50, 7, 16));
+
+    // Struck again exactly at the end of the hold-over still counts...
+    s.input(6000, off1(60));
+    s.input(6960, on1(60, 100));
+    s.settle(6960);
+    CHECK(s.size() == 1 && member(s, 60)->arrival == arrival);
+
+    // ...one sample later it's a new note; a pick at the end sees it gone.
+    s.input(8000, off1(60));
+    s.settle(8959);
+    CHECK(s.size() == 1);
+    s.settle(8960);
+    CHECK(s.empty());
+    s.input(9000, off1(61));
+    s.input(9100, on1(60, 100));
+    CHECK(s.size() == 1 && member(s, 60)->arrival != arrival);
+
+    // Without a settle between: the input itself drops what ended before it.
+    s.input(10000, off1(60));
+    s.input(10961, on1(60, 100));
+    s.settle(10961);
+    CHECK(s.size() == 1 && member(s, 60)->arrival > arrival);
+}
+
+// A one-slot sequence on Repeat: the chord's offs and ons at the same sample every pass, or a few
+// samples apart. The set never empties.
+void testRepeatedStrikes() {
+    for (std::int64_t gap : {0, 5}) {
+        NoteSet s;
+        s.setHoldOver(gap == 0 ? 0 : 960);
+        const std::uint8_t chord[] = {60, 64, 67};
+        for (std::uint8_t k : chord) s.input(0, on2(k, 0x8000));
+        s.settle(0);
+        std::uint64_t arrivals[3];
+        for (int i = 0; i < 3; ++i) arrivals[i] = member(s, chord[i])->arrival;
+
+        for (std::int64_t pass = 1; pass <= 10; ++pass) {
+            const std::int64_t t = pass * 24000;
+            for (std::uint8_t k : chord) s.input(t, off2(k));
+            if (gap > 0) {
+                s.settle(t);
+                CHECK(s.size() == 3);
+            }
+            for (std::uint8_t k : chord) s.input(t + gap, on2(k, 0x8000));
+            s.settle(t + gap);
+            CHECK(s.size() == 3);
+            for (int i = 0; i < 3; ++i) CHECK(member(s, chord[i]) && member(s, chord[i])->arrival == arrivals[i]);
+        }
+    }
+}
+
+void testPitchMoves() {
+    NoteSet s;
+    const std::uint16_t p = (60 << 9) + 100;
+    s.input(0, on2(60, 0x8000, p));
+    s.input(0, on2(64, 0x8000));
+    auto pitch = [&s] { return member(s, 60)->pitch; };
+    CHECK(pitch() == p);
+
+    // Per-note bend, over the default ±2.
+    s.input(10, m2(0x6, 0, 60, 0, 0xFFFFFFFFu));
+    CHECK(pitch() == p + 1024);
+    s.input(10, m2(0x6, 0, 60, 0, 0));
+    CHECK(pitch() == p - 1024);
+    s.input(10, m2(0x6, 0, 60, 0, 0xC0000000u));
+    CHECK(pitch() == p + 512);
+    CHECK(member(s, 64)->pitch == 64 << 9);  // other notes don't move
+
+    // The channel's range (registered controller 0), then the per-note one (7), which wins.
+    s.input(20, m2(0x2, 0, 0, 0, 12u << 25));
+    CHECK(pitch() == p + 6 * 512);
+    s.input(20, m2(0x2, 0, 0, 7, 48u << 25 | 50u << 18));   // 48.5 semitones
+    CHECK(pitch() == p + 24 * 512 + 128);
+    s.input(20, m2(0x2, 1, 0, 0, 1u << 25));                // another channel: no change
+    CHECK(pitch() == p + 24 * 512 + 128);
+
+    // Pitch 7.25 replaces the note-on's pitch; the bend still adds to it.
+    s.input(30, m2(0x0, 0, 60, 3, 62u << 25 | 1u << 24));   // 62.5
+    CHECK(pitch() == 62 * 512 + 256 + 24 * 512 + 128);
+    s.input(30, m2(0x6, 0, 60, 0, 0x80000000u));
+    CHECK(pitch() == 62 * 512 + 256);
+    s.input(30, m2(0x0, 0, 60, 4, 0));                      // another per-note controller: no change
+    CHECK(pitch() == 62 * 512 + 256);
+
+    // Per-Note Management: Detach alone changes nothing; Reset clears 7.25 and the bend.
+    s.input(40, m2(0x6, 0, 60, 0, 0xFFFFFFFFu));
+    s.input(40, m2(0xF, 0, 60, 0x02, 0));
+    CHECK(pitch() == 62 * 512 + 256 + 48 * 512 + 256);
+    s.input(40, m2(0xF, 0, 60, 0x01, 0));
+    CHECK(pitch() == p);
+}
+
+void testChannelSplit() {
+    NoteSet s;
+    s.setChannels(NoteSet::kAll, 9);
+    Heard h = s.input(0, on1(36, 127, 9));
+    CHECK(h.kind == Heard::Kind::Trigger && h.strike && h.channel == 9 && h.velocity == 0xFFFF);
+    h = s.input(10, off1(36, 9));
+    CHECK(h.kind == Heard::Kind::Trigger && !h.strike);
+    CHECK(s.input(0, on1(60, 100, 3)).kind == Heard::Kind::SetNote);
+    s.settle(10);
+    CHECK(s.size() == 1 && member(s, 60, 3));
+
+    // One set channel: the others pass through.
+    s.setChannels(2, NoteSet::kNone);
+    CHECK(s.input(20, on1(62, 100, 0)).kind == Heard::Kind::Other);
+    CHECK(s.input(20, on1(64, 100, 9)).kind == Heard::Kind::Other);
+    CHECK(s.input(20, on1(65, 100, 2)).kind == Heard::Kind::SetNote);
+    s.settle(20);
+    CHECK(s.size() == 2 && member(s, 65, 2) && !member(s, 62));
+
+    // A channel that's both is the trigger channel.
+    s.setChannels(5, 5);
+    CHECK(s.input(30, on1(40, 100, 5)).kind == Heard::Kind::Trigger);
+}
+
+void testLatch() {
+    NoteSet s;
+    s.setLatch(true);
+    s.input(0, on1(60));
+    s.input(0, on1(64));
+    s.input(100, off1(60));
+    s.input(100, off1(64));
+    s.settle(100);
+    CHECK(s.size() == 2);                    // let go: the set stays
+
+    s.input(200, on1(67));                   // nothing held: a new set
+    s.settle(200);
+    CHECK(s.size() == 1 && member(s, 67));
+
+    // The same key as a latched one, with nothing held, starts a new set too.
+    s.input(300, off1(67));
+    s.settle(300);
+    const std::uint64_t old = member(s, 67)->arrival;
+    s.input(400, on1(67));
+    s.settle(400);
+    CHECK(s.size() == 1 && member(s, 67)->arrival != old);
+
+    // While a note is held, notes add, and a latched one struck again keeps its place.
+    s.input(500, on1(70));
+    s.input(600, off1(67));
+    s.settle(600);
+    const std::uint64_t a67 = member(s, 67)->arrival;
+    s.input(700, on1(67));
+    s.settle(700);
+    CHECK(s.size() == 2 && member(s, 67)->arrival == a67);
+
+    // Turning latch off drops the latched members.
+    s.input(800, off1(70));
+    s.settle(800);
+    CHECK(s.size() == 2);
+    s.setLatch(false);
+    CHECK(s.size() == 1 && member(s, 67));
+
+    // Latch with hold-over: a released note latches once its hold-over is up.
+    NoteSet h;
+    h.setLatch(true);
+    h.setHoldOver(50);
+    h.input(0, on1(60));
+    h.input(10, off1(60));
+    h.settle(100);
+    h.input(100, on1(62));                   // past the hold-over, nothing held: a new set
+    h.settle(100);
+    CHECK(h.size() == 1 && member(h, 62));
+}
+
+void testSetReset() {
+    NoteSet s;
+    s.input(0, on1(60));
+    s.input(0, on2(64, 0x8000, 0, 4, 2));
+    CHECK(s.input(10, m1(0xB, 3, 123, 0)).kind == Heard::Kind::Reset);   // All Notes Off, any channel
+    CHECK(s.empty());
+    s.input(20, on1(60));
+    CHECK(s.input(30, m2(0xB, 0, 120, 0, 0)).kind == Heard::Kind::Reset); // All Sound Off, MIDI 2.0
+    CHECK(s.empty());
+}
+
+void testSetFull() {
+    NoteSet s;
+    for (std::size_t i = 0; i < NoteSet::kCapacity; ++i)
+        s.input(0, on2(static_cast<std::uint8_t>(i % 128), 0x8000, 0, static_cast<std::uint8_t>(i / 128)));
+    CHECK(s.size() == NoteSet::kCapacity);
+    CHECK(s.input(0, on2(0, 0x8000, 0, 15)).kind == Heard::Kind::SetNote);   // classed, not kept
+    CHECK(s.size() == NoteSet::kCapacity);
+    s.input(1, off2(0, 0));
+    s.settle(1);
+    s.input(2, on2(0, 0x8000, 0, 15));
+    CHECK(s.size() == NoteSet::kCapacity && member(s, 0, 15));
+}
+
 } // namespace
 
 int main() {
@@ -346,6 +632,14 @@ int main() {
     testEndAll();
     testFull();
     testNothingSticks();
+    testSetBasics();
+    testHoldOver();
+    testRepeatedStrikes();
+    testPitchMoves();
+    testChannelSplit();
+    testLatch();
+    testSetReset();
+    testSetFull();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

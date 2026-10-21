@@ -6,7 +6,7 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 under way. The build and the owned-note table are done (`src/core/OwnedNotes`). "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) and the set (`src/core/NoteSet`) are done. "NoteGran" is a working name.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -78,6 +78,12 @@ The set is what an assigner or Chords is listening to now. The rules:
 - **Latch** (on/off): on, the set stays after its notes are released, until the next note-on starts a
   new one. So a keyboard player can let go.
 - **An empty set** makes nothing; grains already sounding end as usual.
+- **As built (2026-10-21):** "the same note" is the same group, channel and key, not the same pitch.
+  A released member is still in the set until its hold-over ends; a re-strike exactly at the end
+  still counts, and a pick at the end doesn't see it. The bend range is the synths' rule: registered
+  controller 7, else the channel's 0, else ±2; a struck-again note keeps its 7.25 and bend until a
+  Per-Note Management Reset, as in a synth. 512 members; a note past that is classed as a set note
+  but not kept.
 - **Dry** (on/off): whether the set's notes also sound. Off by default for the assigners, since the set
   is usually a source of pitches, not a part.
 
