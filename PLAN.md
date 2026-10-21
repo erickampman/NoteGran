@@ -6,7 +6,7 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** proposed. Nothing is built. "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 under way. The build and the owned-note table are done (`src/core/OwnedNotes`). "NoteGran" is a working name.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -144,8 +144,11 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
 
 ### Notes always end
 
-- An **owned-note table** remembers every note the plugin sent: output port, group, channel, key, the
-  dialect, and its end time. That's the only way its note-off is sent, so none can stick.
+- An **owned-note table** remembers every note the plugin sent: group, channel, key, the dialect, and
+  its end time (or none, for a held note, ended by its id). That's the only way its note-off is sent,
+  so none can stick. One output port, so no port field. 1024 slots in a member array, never
+  allocated; only the notes sounding are scanned. Full, a new note ends the oldest, as Voices does. A
+  note-off that doesn't fit the output buffer goes out in the next block, late but never lost.
 - `Voices` (1 to 64, default 16): at most this many grains sound at once. A new grain over the limit
   ends the oldest one first (note-off before the new note-on). Synths have only so many voices, and a
   dense cloud can easily ask for more.
@@ -160,8 +163,12 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
 
 ### Randomness and repeatability
 
-- One small fixed generator (PCG32 or PMU's LCG) per instance, with separate streams for timing,
-  picks, pitch, velocity and position, so turning one knob doesn't reshuffle the others.
+- **Counter-based draws** (decided 2026-10-21): each draw is a fixed integer hash of the seed, its
+  stream and its index (the grain's number, or its beat position), not the next value of a running
+  generator. So any point can be worked out without replaying from the start, which Umpire needs to
+  play a generator clip from bar 5 exactly as from bar 1 (Integration, below), and output can't depend
+  on block size. Separate streams for timing, picks, pitch, velocity and position, so turning one knob
+  doesn't reshuffle the others.
 - `Seed` (0 to 9999; **0 = new each start**, the default). With a seed set, the same input at the same
   times gives exactly the same output, on any machine. Umpire records a NoteGran's output as plain
   notes, and a fixed seed makes a retake repeatable.
@@ -314,20 +321,58 @@ NoteGran/
   parsing of its own; anything about UMP itself goes into uw-core first, committed and pushed before
   NoteGran's pin moves.
 - **The core is written to be shared** with StageHand's and Umpire's host-side generators: no CLAP
-  in it, input as `uw::MidiMessage` with sample offsets, output into a caller's buffer, time from the
-  caller. Where it ends up is a decision for UmpireDAW's `docs/decisions.md` ("Shared code"):
-  plugins may use only `uw::ump` today, so either uw-core gets a second plugin-safe layer (e.g.
-  `uw::gen`), or the core becomes its own small library. Until then it lives here.
+  in it, input as `uw::MidiMessage` with sample offsets, output as `NoteEvent`s into a caller's
+  buffer, time from the caller. Where it ends up: Integration, below.
 - **Scales are shared with KeyboardEDO** in spirit: an EDO scale here should mean what a KeyboardEDO
   layout's tuning means. If both need the same table, it's a candidate for that shared layer.
 - **PMU's code** (the attractor, the triangular draws, the LCG, the tier classifier, `ModalDiscretizer`)
   is copied in where needed, with a note naming the PMU file it came from.
 
+## Integration (2026-10-21)
+
+Two different things, kept apart.
+
+**The plugins in a host** share no code with it: they're CLAP note effects. StageHand's row chain
+(`StageHand/docs/midi-effects.md`) is built and runs Retune; Umpire hosts CLAP through the same
+`uw::clap-host`; Bitwig sends MIDI 1.0 only. StageHand drops a plugin's note expressions, so the CLAP
+dialect's fraction is lost there (open question 8); MIDI 2.0 output is fine.
+
+**Host-side generators share the core.** StageHand's sources (Euclidean, cellular automata, random
+walk) and Umpire's generator clips need the same pieces as the plugins:
+
+| Piece | |
+|---|---|
+| Owned-note table, `NoteEvent` / `NoteOut` | generic |
+| Clock (Free and Beats, from an absolute sample count) | generic |
+| Counter-based random streams | generic |
+| Pitch (7.9, Quantize, nearest free key) | generic |
+| The set; each plugin's logic | NoteGran's, but callable from a host too |
+
+A plugin calls the core from `process()`; a host from its engine, with its own sample count and beat
+position, turning each `NoteEvent` into its own events.
+
+- **Home (proposed): a `uw::gen` target in uw-core,** beside `uw::ump` and under its rules (no
+  dependency but `uw::ump`, PIC, hidden symbols), so it's safe in a plugin. Every consumer already
+  pins uw-core, so nothing new. To be confirmed in UmpireDAW's `docs/decisions.md` ("Shared code").
+- **When:** the core stays here while its API settles (through phase 2), and moves when StageHand's
+  first host-side generator starts. Moving earlier would put every phase-1 change through a uw-core
+  push and pin.
+- **Seeking:** Umpire's generator clips must give the same notes from any start point, hence
+  counter-based draws and a clock worked out from absolute time (Randomness, Time, above).
+- **Umpire's arpeggio clip is Cloud with a fixed set** (`UmpireDAW/docs/ideas.md`: up-down,
+  sixteenths, C–E–G, a seed). Keeping each plugin's logic as plain core code gives Umpire set-reading
+  generator clips nearly free.
+- **Versioning:** once Umpire stores recipes, a change to shared generator code changes saved songs,
+  so each host-side generator carries a version. The plugins don't: Umpire records their output as
+  plain notes.
+- **UMP note builders** (a `NoteEvent` to a MIDI 1.0 or 2.0 note on/off) are needed on both sides, so
+  they go into `uw::ump`, not here. The CLAP dialect stays in NoteGran's plugin layer.
+
 ## Phases
 
 1. **The core and its tests.** The set (hold-over, pitch moves, latch, channel split), clock (Free and
    Beats, from an absolute sample count), the owned-note table, Voices, the same-key rule, pitch (7.9
-   maths, Quantize, nearest-free keys), seeded random streams. Tests: notes end in every case above, a
+   maths, Quantize, nearest-free keys), seeded counter-based random streams. Tests: notes end in every case above, a
    sequence's repeated strikes don't empty the set, output independent of block size, the same seed
    gives the same output, MIDI 1.0 / 2.0 / CLAP dialects.
 2. **NoteGran Cloud, as a CLAP plugin.** `clap-validator` clean, headless host test. Then listen in
