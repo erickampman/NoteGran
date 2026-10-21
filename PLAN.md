@@ -253,9 +253,9 @@ since it proves the set and the core with the least of its own.
   doesn't move the ordered picks' place. Tested end to end: any block size gives the same notes, Free
   and Beats, with and without a host timeline; the same seed the same notes; all three dialects;
   notes end on release, All Notes Off and a transport stop; Voices and When full; triggers; Dry.
-- **Dry and keys:** a MIDI 2.0 grain avoids keys the set is holding on its channel. A MIDI 1.0 grain
-  can still land on a dry note's key, which the plugin doesn't own and can't end first (open question
-  9).
+- **Dry and keys:** a MIDI 2.0 or CLAP grain avoids keys the set is holding on its channel. A MIDI
+  1.0 grain that lands on a dry note's key, which the plugin doesn't own and can't end first, is
+  skipped (open question 9, decided 2026-10-21).
 
 ## NoteGran Chords (phase 3)
 
@@ -437,8 +437,8 @@ position, turning each `NoteEvent` into its own events.
    8; When full Skip; Seed 0 new at each activate); CLAP notes in as MIDI 2.0 tagged Clap, a tuning
    expression as Pitch 7.25; a parameter or transport event splits the block at its sample, and
    `Transport::continues` keeps the clock from re-anchoring mid-block; notes left at a reset or
-   reactivation end at the next process(); SLEEP once silent with an empty set. The MIDI 2.0 note
-   builder is still local to `plugin.cpp`, to go into `uw::ump` (Integration, above).
+   reactivation end at the next process(); SLEEP once silent with an empty set. MIDI 2.0 notes are
+   built with `uw::ump::midi2NoteOn` / `midi2NoteOff` (added to uw-core for this, 2026-10-21).
    Heard (2026-10-21): StageHand, KeyboardEDO → Cloud → a synth, working well. Still to hear: a
    one-slot sequence as the set, 31-EDO with Quantize EDO, and Bitwig (MIDI 1.0 / CLAP notes). Then listen in
    StageHand: a one-slot sequence → Cloud → StruckSynth, and KeyboardEDO → Cloud in 31-EDO. And in
@@ -468,6 +468,5 @@ position, turning each `NoteEvent` into its own events.
 8. **In StageHand:** it drops a plugin's wildcard notes and note expressions
    (`StageHand/docs/midi-effects.md`). NoteGran sends neither, except CLAP-dialect tuning expressions,
    which only matter when the input is CLAP notes. Check that before phase 2.
-9. **Dry in MIDI 1.0:** a grain on the same key and channel as a dry (passed-through) note confuses
-   the synth's note matching. Options: skip such a grain, move it to the next key (wrong pitch), or
-   send grains on another channel. (Proposed: skip.)
+9. ~~**Dry in MIDI 1.0:**~~ Decided 2026-10-21: a grain on the key and channel of a dry
+   (passed-through) note is skipped.

@@ -1446,6 +1446,13 @@ void testCloudEnds() {
     const auto on = ons(run.events);
     CHECK(on.size() == 1 && on[0].key != 60 && on[0].pitch79 == st(60));
 
+    // Dry in MIDI 1.0: a grain on the passing note's own key is skipped.
+    run = runCloud(d, {input(0, on1(60))}, 48000, false);
+    CHECK(run.passed == std::vector<bool>({true}));
+    CHECK(ons(run.events).empty());
+    d.pitch.transpose = st(7);   // on another key, it plays
+    CHECK(ons(runCloud(d, {input(0, on1(60))}, 4800, true).events).size() == 1);
+
     // Busy while notes sound or a set is held.
     CloudCore core;
     core.setSampleRate(48000.0);

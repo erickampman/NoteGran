@@ -113,6 +113,10 @@ void CloudCore::play(const Grain& g, NoteOut& out) noexcept {
     const KeyChoice    key   = chooseKey(pitch, m.dialect, [&](std::uint8_t k) {
         return owned_.sounding(m.group, m.channel, k) || (params_.dry && set_.holds(m.group, m.channel, k));
     });
+    // Dry: a grain can't share a key with a set note passing through, which the plugin doesn't
+    // own and can't end first. MIDI 2.0 and CLAP grains move to a free key above; a MIDI 1.0
+    // grain (or any, with every key taken) is skipped (PLAN.md, open question 9).
+    if (params_.dry && set_.holds(m.group, m.channel, key.key)) return;
 
     NoteStart n;
     n.time     = g.time;

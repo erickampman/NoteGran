@@ -295,11 +295,8 @@ void pushNote(const NoteEvent& e, std::uint32_t time, const clap_output_events_t
         clap_event_midi2_t ev{};
         ev.header     = {sizeof(ev), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI2, 0};
         ev.port_index = 0;
-        const bool attribute = e.on && e.pitch79 != (e.key << 9);   // a whole key needs none
-        const uw::MidiMessage m =
-            e.on ? midi2(0x9, e.channel, e.key, attribute ? 3 : 0,
-                         std::uint32_t(e.velocity) << 16 | (attribute ? e.pitch79 : 0), e.group)
-                 : midi2(0x8, e.channel, e.key, 0, 0, e.group);
+        const uw::MidiMessage m = e.on ? ump::midi2NoteOn(e.group, e.channel, e.key, e.velocity, e.pitch79)
+                                       : ump::midi2NoteOff(e.group, e.channel, e.key);
         std::memcpy(ev.data, m.words, sizeof(ev.data));
         push(out, &ev.header);
         break;
