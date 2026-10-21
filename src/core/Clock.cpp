@@ -81,7 +81,9 @@ Clock::Change Clock::begin(std::int64_t start, std::int64_t frames, const Transp
         anchorPos_    = 0;
         setTempo(bpm);
     }
-    if (follow) {
+    if (follow && transport->continues && started_ && following_) {
+        from_ = exactBeatAt(start);   // the host's block goes on: nothing new to anchor to
+    } else if (follow) {
         bool carryOn = false;
         std::int64_t predicted = 0;
         i128         predictedExact = 0;

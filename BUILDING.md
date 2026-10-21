@@ -1,8 +1,9 @@
 # Building NoteGran
 
-NoteGran builds the same way on Linux and macOS: CMake + Ninja, git submodules, C++20. For now
-(phase 1) the build makes the core library `notegran_core` and its test program
-`notegran-core-tests`. The `.clap` comes in phase 2.
+NoteGran builds the same way on Linux and macOS: CMake + Ninja, git submodules, C++20. The build
+makes the core library `notegran_core`, the plugin `NoteGran.clap` (NoteGran Cloud), and two test
+programs: `notegran-core-tests` (the core) and `notegran-clap-tests` (a headless host that loads
+the built `.clap`).
 
 ## What you need
 
@@ -34,6 +35,17 @@ cmake -S . -B build -G Ninja
 ninja -C build
 ctest --test-dir build --output-on-failure
 ```
+
+The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS. To
+use it in a host, link it into the CLAP folder (`~/.clap` on Linux,
+`~/Library/Audio/Plug-Ins/CLAP` on macOS):
+
+```bash
+ninja -C build install-clap
+```
+
+`clap-validator validate build/NoteGran.clap` should pass with no failures (the skipped tests are
+for audio ports, presets and 64-bit audio, which a note effect doesn't have).
 
 To build against a uw-core change that isn't pushed and pinned yet, add
 `-DNOTEGRAN_UW_CORE_DIR=/path/to/uw-core` to the first command.

@@ -37,6 +37,9 @@ struct Transport {
     bool         hasBeats = false;   // a beat timeline
     bool         playing  = false;
     std::int64_t beats    = 0;       // beat position, in kBeat units
+    // The same transport, later in the host's block (a plugin splitting its block at a parameter
+    // change): `beats` is still the block's start, so the clock carries on rather than re-anchor.
+    bool         continues = false;
 };
 
 class Clock {

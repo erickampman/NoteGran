@@ -6,7 +6,8 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`), the clock (`src/core/Clock`), the random draws (`src/core/Random`), pitch (`src/core/Pitch`), velocity and length (`src/core/Shape`) and Cloud's logic (`src/core/Cloud`) are done: phase 1 is complete. "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 (the core) is done; phase 2 is built and passes its tests and
+`clap-validator`: `NoteGran.clap` with NoteGran Cloud. Next: listening in StageHand and Bitwig.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -430,7 +431,13 @@ position, turning each `NoteEvent` into its own events.
    maths, Quantize, nearest-free keys), seeded counter-based random streams. Tests: notes end in every case above, a
    sequence's repeated strikes don't empty the set, output independent of block size, the same seed
    gives the same output, MIDI 1.0 / 2.0 / CLAP dialects.
-2. **NoteGran Cloud, as a CLAP plugin.** `clap-validator` clean, headless host test. Then listen in
+2. **NoteGran Cloud, as a CLAP plugin.** `clap-validator` clean, headless host test (both done,
+   2026-10-21: `src/plugin.cpp`, `test/ClapTests.cpp`). Built: 25 parameters (Voices 1..32, default
+   8; When full Skip; Seed 0 new at each activate); CLAP notes in as MIDI 2.0 tagged Clap, a tuning
+   expression as Pitch 7.25; a parameter or transport event splits the block at its sample, and
+   `Transport::continues` keeps the clock from re-anchoring mid-block; notes left at a reset or
+   reactivation end at the next process(); SLEEP once silent with an empty set. The MIDI 2.0 note
+   builder is still local to `plugin.cpp`, to go into `uw::ump` (Integration, above). Then listen in
    StageHand: a one-slot sequence → Cloud → StruckSynth, and KeyboardEDO → Cloud in 31-EDO. And in
    Bitwig (MIDI 1.0 there).
 3. **NoteGran Chords,** with the generic editor and the scale from a channel. Then Chords → Cloud.

@@ -27,6 +27,43 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(notegran_core PRIVATE -Wall -Wextra -Wconversion)
 endif()
 
+# --- the .clap ---------------------------------------------------------------------------------
+# Hidden visibility, so clap_entry (CLAP_EXPORT in plugin.cpp) is the only exported symbol and two
+# plugins with different uw-core pins can't bind to each other's copies.
+add_library(NoteGran MODULE src/plugin.cpp)
+target_include_directories(NoteGran PRIVATE external/clap/include)
+target_link_libraries(NoteGran PRIVATE notegran_core)
+target_compile_definitions(NoteGran PRIVATE NOTEGRAN_VERSION_STRING="${PROJECT_VERSION}")
+set_target_properties(NoteGran PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(NoteGran PRIVATE -Wall -Wextra)
+endif()
+
+if(APPLE)
+    set_target_properties(NoteGran PROPERTIES
+        BUNDLE TRUE
+        BUNDLE_EXTENSION "clap"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.unlikelyware.notegran"
+        MACOSX_BUNDLE_BUNDLE_NAME "NoteGran"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+    set(NOTEGRAN_CLAP_DIR "$ENV{HOME}/Library/Audio/Plug-Ins/CLAP")
+    set(NOTEGRAN_CLAP_ARTIFACT "$<TARGET_BUNDLE_DIR:NoteGran>")
+else()
+    set_target_properties(NoteGran PROPERTIES PREFIX "" SUFFIX ".clap")
+    set(NOTEGRAN_CLAP_DIR "$ENV{HOME}/.clap")
+    set(NOTEGRAN_CLAP_ARTIFACT "$<TARGET_FILE:NoteGran>")
+endif()
+
+# A separate target, as in the synths, so an ordinary build never writes outside the build tree.
+add_custom_target(install-clap
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${NOTEGRAN_CLAP_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${NOTEGRAN_CLAP_DIR}/NoteGran.clap"
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "${NOTEGRAN_CLAP_ARTIFACT}" "${NOTEGRAN_CLAP_DIR}/NoteGran.clap"
+    DEPENDS NoteGran
+    VERBATIM
+    COMMENT "Symlinking NoteGran.clap into ${NOTEGRAN_CLAP_DIR}")
+
 # --- tests -------------------------------------------------------------------------------------
 include(CTest)
 if(BUILD_TESTING)
@@ -36,4 +73,11 @@ if(BUILD_TESTING)
         target_compile_options(notegran-core-tests PRIVATE -Wall -Wextra)
     endif()
     add_test(NAME notegran-core COMMAND notegran-core-tests)
+
+    # Drives the built .clap over the CLAP C API: no DAW, no GUI.
+    add_executable(notegran-clap-tests test/ClapTests.cpp)
+    target_include_directories(notegran-clap-tests PRIVATE external/clap/include)
+    target_link_libraries(notegran-clap-tests PRIVATE uw::ump ${CMAKE_DL_LIBS})
+    add_dependencies(notegran-clap-tests NoteGran)
+    add_test(NAME notegran-clap COMMAND notegran-clap-tests "${NOTEGRAN_CLAP_ARTIFACT}")
 endif()
