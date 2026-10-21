@@ -7,7 +7,8 @@ hand-written raw CLAP entry point over a pure C++ core, and the vendored free-au
 for the other formats.
 
 **Status (2026-10-21):** phase 1 (the core) is done; phase 2 is built and passes its tests and
-`clap-validator`: `NoteGran.clap` with NoteGran Cloud. Next: listening in StageHand and Bitwig.
+`clap-validator`: `NoteGran.clap` with NoteGran Cloud. Heard working in StageHand with KeyboardEDO
+as the controller (2026-10-21); Bitwig not tried yet.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -437,7 +438,9 @@ position, turning each `NoteEvent` into its own events.
    expression as Pitch 7.25; a parameter or transport event splits the block at its sample, and
    `Transport::continues` keeps the clock from re-anchoring mid-block; notes left at a reset or
    reactivation end at the next process(); SLEEP once silent with an empty set. The MIDI 2.0 note
-   builder is still local to `plugin.cpp`, to go into `uw::ump` (Integration, above). Then listen in
+   builder is still local to `plugin.cpp`, to go into `uw::ump` (Integration, above).
+   Heard (2026-10-21): StageHand, KeyboardEDO → Cloud → a synth, working well. Still to hear: a
+   one-slot sequence as the set, 31-EDO with Quantize EDO, and Bitwig (MIDI 1.0 / CLAP notes). Then listen in
    StageHand: a one-slot sequence → Cloud → StruckSynth, and KeyboardEDO → Cloud in 31-EDO. And in
    Bitwig (MIDI 1.0 there).
 3. **NoteGran Chords,** with the generic editor and the scale from a channel. Then Chords → Cloud.
