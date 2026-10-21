@@ -46,6 +46,7 @@ NoteId OwnedNotes::start(const NoteStart& note, NoteOut& out) noexcept {
     const std::size_t same     = findKey(group, channel, note.key);
     const std::size_t left     = count_ - (same == kNone ? 0 : 1);
     const std::size_t voices   = static_cast<std::size_t>(voices_);
+    if (whenFull_ == WhenFull::Skip && left >= voices) return 0;
     const std::size_t steals   = left + 1 > voices ? left + 1 - voices : 0;
     const std::size_t needed   = (same == kNone ? 0 : 1) + steals + 1;
     if (out.room() < needed) return 0;

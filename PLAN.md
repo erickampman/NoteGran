@@ -6,7 +6,7 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) and the set (`src/core/NoteSet`) are done. "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`) and the clock (`src/core/Clock`) are done. "NoteGran" is a working name.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -127,6 +127,16 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
 - **Schedule from an absolute clock, never per block.** Grain times and every random draw are worked
   out from a running sample count (or the beat position), so the output doesn't depend on block size.
   The tests check this.
+- **As built (2026-10-21): slots.** A rate is a grid: slot n sits at a fixed position (sample
+  ceil(n·sr/rate) in Free; n × beat/division in CLAP beat time, 2^31 per beat, in Beats), so a block
+  only asks which slots start in it. Nothing is carried between blocks, a host can start anywhere,
+  and n is what a random draw is keyed on. All integer and exact: the tempo becomes 1/65536 BPM, and
+  sample ↔ beat is rational with 128-bit intermediates (120 BPM's beats land on exact samples).
+  Following the host, each block's slots carry on from where the last ended, not from the host's
+  rounded position, so none plays twice or is skipped; a jump of more than 1/64 beat (a loop, a
+  seek) restarts from the host's position, less one sample for its rounding. Own count (stopped, or no
+  timeline): beat 0 is sample 0, re-anchored only when the tempo changes. The clock reports the
+  transport stopping and jumps; the caller ends notes.
 - `Onset random` (0 to 1, as BufferGran's): 0 is evenly spaced, 1 is Poisson "dust". In Beats mode, 0
   lands exactly on the grid.
 
@@ -155,9 +165,18 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
   so none can stick. One output port, so no port field. 1024 slots in a member array, never
   allocated; only the notes sounding are scanned. Full, a new note ends the oldest, as Voices does. A
   note-off that doesn't fit the output buffer goes out in the next block, late but never lost.
-- `Voices` (1 to 64, default 16): at most this many grains sound at once. A new grain over the limit
-  ends the oldest one first (note-off before the new note-on). Synths have only so many voices, and a
-  dense cloud can easily ask for more.
+- **Voices are scarce (2026-10-21).** Unlike PMU's granulars, where a grain is cheap and dozens
+  overlap, every grain here is a voice on the synth after it, and the author's synths have **at most
+  32 voices**. Usually a part should stay well under that, leaving room for release tails. So the
+  voice limit is part of how a NoteGran sounds, not a safety net: density, length and Voices are set
+  together, and a dense cloud is made of short grains, not many long ones.
+- `Voices` (1 to 32, **default 8**): at most this many notes sound at once, in every plugin (Chords'
+  notes too). What a new note over the limit does is `When full`, below.
+  The owned-note table has 1024 slots anyway: memory only, never voices.
+- `When full` (decided 2026-10-21), in every plugin: **Skip** (the default: the new note isn't
+  played) | **Steal** (the oldest ends first). Skip keeps grains whole and thins a dense cloud; Steal
+  keeps the newest notes, but at a high density cuts every grain short. Either way a sounding key
+  struck again replaces itself (the same-key rule), so it's never skipped.
 - **The same key twice:** if a key is already sounding on that channel, the old one's note-off goes
   just before the new note-on (StageHand's sequence rule).
 - `reset()`, All Notes Off and All Sound Off on input, deactivating, and the transport stopping (Beats
@@ -263,7 +282,8 @@ trigger channel) starts a phrase of grains, rooted on that note.
   harmony). Velocity is the root's, times Level, and `Decay` (0 to 1) fades it across the phrase.
 - `Release` (what the root's note-off does): **Finish** (the phrase plays out) | **Stop** (no more
   grains; sounding ones end as usual) | **Loop** (the phrase repeats while the root is held).
-- Up to 16 phrases at once, sharing the `Voices` limit; a 17th replaces the oldest.
+- Up to 16 phrases at once, sharing the `Voices` limit (so at 8 voices, overlapping phrases thin
+  each other out); a 17th replaces the oldest.
 - Later, simpler shapes beside the attractor: a strum, a ratchet, a bounce (a phrase whose gaps shrink).
 
 ## NoteGran Buffer (phase 6)

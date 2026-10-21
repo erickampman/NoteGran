@@ -1,9 +1,13 @@
 // NoteGran core tests (PLAN.md, phase 1). Silent unless a check fails.
 
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
+#include <tuple>
+#include <utility>
 #include <vector>
 
+#include "core/Clock.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
 #include "uw/ump/Ump.h"
@@ -146,6 +150,7 @@ void testSameKey() {
 
 void testVoices() {
     OwnedNotes t;
+    t.setWhenFull(WhenFull::Steal);
     t.setVoices(2);
     Out o(8);
     t.start(note(0, 1000, 60), o.out);
@@ -159,6 +164,7 @@ void testVoices() {
     // A note that ends at the new one's time ends on its own, and isn't a steal.
     o.out.clear();
     OwnedNotes u;
+    u.setWhenFull(WhenFull::Steal);
     u.setVoices(1);
     u.start(note(0, 10, 60), o.out);
     o.out.clear();
@@ -191,8 +197,46 @@ void testVoices() {
     CHECK(t.voices() == static_cast<int>(OwnedNotes::kCapacity));
 }
 
+void testSkip() {
+    OwnedNotes t;
+    CHECK(t.whenFull() == WhenFull::Skip && t.voices() == 8);   // the plugins' defaults
+    t.setVoices(2);
+    Out o(8);
+    t.start(note(0, 1000, 60), o.out);
+    t.start(note(1, 1000, 62), o.out);
+    o.out.clear();
+    CHECK(t.start(note(2, 1000, 64), o.out) == 0);  // full: skipped, nothing sent, both whole
+    CHECK(o.out.size() == 0 && t.size() == 2 && t.sounding(0, 0, 60) && t.sounding(0, 0, 62));
+
+    // A sounding key struck again replaces itself: never skipped.
+    CHECK(t.start(note(3, 1000, 62), o.out) != 0);
+    CHECK(o.out.size() == 2 && isOff(o.out[0], 3, 62) && isOn(o.out[1], 3, 62));
+
+    // A note that ends at the new one's time makes room for it.
+    OwnedNotes u;
+    u.setVoices(1);
+    u.start(note(0, 10, 60), o.out);
+    o.out.clear();
+    CHECK(u.start(note(10, 20, 62), o.out) != 0);
+    CHECK(o.out.size() == 2 && isOff(o.out[0], 10, 60) && isOn(o.out[1], 10, 62));
+
+    // Lowering Voices: nothing ends, new notes wait until enough have.
+    OwnedNotes w;
+    w.setVoices(4);
+    for (std::uint8_t k = 0; k < 4; ++k) w.start(note(0, 100 + k, static_cast<std::uint8_t>(60 + k)), o.out);
+    w.setVoices(2);
+    o.out.clear();
+    CHECK(w.start(note(50, 500, 70), o.out) == 0 && o.out.size() == 0);
+    CHECK(w.start(note(101, 500, 70), o.out) == 0);  // 60 and 61 ended: still 2 sounding
+    CHECK(o.out.size() == 2 && w.size() == 2);
+    o.out.clear();
+    CHECK(w.start(note(102, 500, 70), o.out) != 0);  // 62 ended too: room
+    CHECK(o.out.size() == 2 && isOff(o.out[0], 102, 62) && isOn(o.out[1], 102, 70));
+}
+
 void testNoRoom() {
     OwnedNotes t;
+    t.setWhenFull(WhenFull::Steal);
     t.setVoices(1);
     Out big(8);
     t.start(note(0, 1000, 60), big.out);
@@ -247,6 +291,7 @@ void testEndAll() {
 void testFull() {
     // Every slot in use: a new note ends the oldest, as Voices does.
     OwnedNotes t;
+    t.setWhenFull(WhenFull::Steal);
     t.setVoices(static_cast<int>(OwnedNotes::kCapacity));
     Out o(OwnedNotes::kCapacity + 4);
     for (std::size_t i = 0; i < OwnedNotes::kCapacity; ++i) {
@@ -301,6 +346,7 @@ void testNothingSticks() {
         switch (rnd(20)) {
         case 0:
             t.setVoices(1 + static_cast<int>(rnd(24)));
+            t.setWhenFull(rnd(2) == 0 ? WhenFull::Skip : WhenFull::Steal);
             break;
         case 1:
             if (!held.empty()) {
@@ -619,6 +665,200 @@ void testSetFull() {
     CHECK(s.size() == NoteSet::kCapacity && member(s, 0, 15));
 }
 
+
+// --- the clock ----------------------------------------------------------------------------
+
+using Slots = std::vector<std::pair<std::int64_t, std::int64_t>>;   // (n, sample)
+
+// Block sizes from 1 to 2048, the same each run.
+struct Sizes {
+    std::uint32_t lcg = 777;
+    std::int64_t  next() {
+        lcg = lcg * 1664525u + 1013904223u;
+        return 1 + (lcg >> 8) % 2048;
+    }
+};
+
+// Runs [0, length) in blocks (one block if `oneBlock`), with `transport` from a function of the
+// block's start sample (null for none), collecting every slot of `grid`. Each run gets its own copy
+// of the clock: an absolute sample count never goes back.
+template <class T>
+Slots runClock(Clock clock, const Grid& grid, std::int64_t length, bool oneBlock, T transportAt) {
+    Slots  out;
+    Sizes  sizes;
+    for (std::int64_t start = 0; start < length;) {
+        const std::int64_t frames = oneBlock ? length : std::min(sizes.next(), length - start);
+        Transport          t;
+        const Transport*   tp = transportAt(start, t);
+        clock.begin(start, frames, tp);
+        clock.slots(grid, [&](std::int64_t n, std::int64_t sample) {
+            CHECK(sample >= start && sample < start + frames);
+            out.emplace_back(n, sample);
+        });
+        start += frames;
+    }
+    return out;
+}
+
+const Transport* noTransport(std::int64_t, Transport&) { return nullptr; }
+
+void testClockFree() {
+    Clock c;
+    c.setSampleRate(48000.0);
+    const Grid g10 = Grid::perSecond(10.0, 48000);
+    const Slots one = runClock(c, g10, 48000, true, noTransport);
+    CHECK(one.size() == 10);
+    for (std::size_t i = 0; i < one.size(); ++i)
+        CHECK(one[i].first == static_cast<std::int64_t>(i) && one[i].second == static_cast<std::int64_t>(i) * 4800);
+    CHECK(runClock(c, g10, 48000, false, noTransport) == one);   // any block sizes, the same
+
+    const Grid g7 = Grid::perSecond(7.0, 48000);
+    const Slots seven = runClock(c, g7, 480000, true, noTransport);
+    CHECK(seven.size() == 70);
+    CHECK(seven[1].second == 6858);              // ceil(48000 / 7)
+    CHECK(seven[69].second == 69 * 48000 / 7 + 1);
+    CHECK(runClock(c, g7, 480000, false, noTransport) == seven);
+
+    // A fractional rate, any block sizes.
+    const Grid odd = Grid::perSecond(13.37, 48000);
+    CHECK(runClock(c, odd, 200000, false, noTransport) == runClock(c, odd, 200000, true, noTransport));
+
+    CHECK(runClock(c, Grid::perSecond(0.0, 48000), 48000, false, noTransport).empty());
+
+    // Free mode reports no transport changes.
+    Transport playing;
+    playing.hasBeats = playing.playing = true;
+    c.begin(0, 64, &playing);
+    CHECK(!c.begin(64, 64, nullptr).stopped);
+}
+
+void testClockOwnCount() {
+    Clock c;
+    c.setSampleRate(48000.0);
+    c.setMode(Clock::Mode::Beats);
+    // No transport: 120 BPM, a beat every 24000 samples from sample 0.
+    const Slots beats = runClock(c, Grid::perBeat(1, 1), 96001, true, noTransport);
+    CHECK(beats.size() == 5);
+    for (std::size_t i = 0; i < beats.size(); ++i) CHECK(beats[i].second == static_cast<std::int64_t>(i) * 24000);
+
+    for (auto [num, den, step] : {std::tuple{3, 1, 8000}, std::tuple{1, 4, 96000}, std::tuple{8, 1, 3000}}) {
+        const Grid  g    = Grid::perBeat(num, den);
+        const Slots one  = runClock(c, g, 960000, true, noTransport);
+        const Slots many = runClock(c, g, 960000, false, noTransport);
+        CHECK(one == many);
+        CHECK(!one.empty());
+        for (std::size_t i = 0; i < one.size(); ++i) CHECK(one[i].second == static_cast<std::int64_t>(i) * step);
+    }
+
+    // A stopped transport with a tempo: its own count, at that tempo.
+    auto stopped90 = [](std::int64_t, Transport& t) -> const Transport* {
+        t.hasTempo = true;
+        t.tempo    = 90.0;
+        t.hasBeats = true;
+        t.playing  = false;
+        t.beats    = 123 * kBeat;   // ignored while stopped
+        return &t;
+    };
+    const Slots s90 = runClock(c, Grid::perBeat(1, 1), 96000, false, stopped90);
+    CHECK(s90.size() == 3 && s90[1].second == 32000 && s90[2].second == 64000);
+
+    // A tempo change carries on from the beat it's on.
+    Clock d;
+    d.setSampleRate(48000.0);
+    d.setMode(Clock::Mode::Beats);
+    Slots got;
+    Transport t;
+    t.hasTempo = true;
+    for (std::int64_t start = 0; start < 180000; start += 1000) {
+        t.tempo = start < 60000 ? 120.0 : 60.0;   // 2.5 beats at 120, then 60
+        d.begin(start, 1000, &t);
+        d.slots(Grid::perBeat(1, 1), [&](std::int64_t n, std::int64_t sample) { got.emplace_back(n, sample); });
+    }
+    CHECK(got.size() == 5);
+    CHECK(got[2].second == 48000 && got[3].first == 3 && got[3].second == 60000 + 24000);
+    CHECK(got[4].second == 60000 + 72000);
+}
+
+// The host's timeline, at 120 BPM: its beat position rounded (and, with `wobble`, off by a little)
+// at each block's start, as a host's double positions are.
+const Transport* host(std::int64_t start, Transport& t, std::int64_t wobble) {
+    t.hasTempo = t.hasBeats = t.playing = true;
+    t.tempo = 120.0;
+    t.beats = std::llround(static_cast<double>(start) / 24000.0 * static_cast<double>(kBeat));
+    if (wobble != 0 && start > 0) t.beats += (start / 7) % 2 == 0 ? wobble : -wobble;
+    return &t;
+}
+
+void testClockHost() {
+    Clock c;
+    c.setSampleRate(48000.0);
+    c.setMode(Clock::Mode::Beats);
+    const Grid g = Grid::perBeat(4, 1);
+
+    for (std::int64_t wobble : {0, 3000, 300000}) {
+        const Slots got = runClock(c, g, 480000, false,
+                                   [wobble](std::int64_t s, Transport& t) { return host(s, t, wobble); });
+        // Every slot once, in order, within a sample or two of where it belongs, or of where the
+        // host says it is (300000 beat units is 3.4 samples, which can bring slot 80 into the run).
+        const std::int64_t slack = 2 + wobble * 24000 / kBeat;
+        CHECK(got.size() == 80 || (wobble > 0 && got.size() == 81));
+        for (std::size_t i = 0; i < got.size(); ++i) {
+            CHECK(got[i].first == static_cast<std::int64_t>(i));
+            const std::int64_t off = got[i].second - static_cast<std::int64_t>(i) * 6000;
+            CHECK(off >= -slack && off <= slack);
+        }
+    }
+
+    // Pre-roll: the host starts half a beat before 0.
+    Clock d;
+    d.setSampleRate(48000.0);
+    d.setMode(Clock::Mode::Beats);
+    Transport t;
+    t.hasTempo = t.hasBeats = t.playing = true;
+    t.beats = -kBeat / 2;
+    d.begin(1000, 24000, &t);
+    Slots pre;
+    d.slots(Grid::perBeat(1, 1), [&](std::int64_t n, std::int64_t sample) { pre.emplace_back(n, sample); });
+    CHECK(pre.size() == 1 && pre[0].first == 0 && pre[0].second == 13000);
+
+    // A loop back to beat 0 is a jump, and its slots play again; stopping is reported once.
+    Clock e;
+    e.setSampleRate(48000.0);
+    e.setMode(Clock::Mode::Beats);
+    Transport u;
+    CHECK(!e.begin(0, 24000, host(0, u, 0)).jumped);
+    CHECK(!e.begin(24000, 24000, host(24000, u, 0)).jumped);
+    Clock::Change ch = e.begin(48000, 24000, host(0, u, 0));
+    CHECK(ch.jumped && !ch.stopped);
+    Slots again;
+    e.slots(Grid::perBeat(1, 1), [&](std::int64_t n, std::int64_t sample) { again.emplace_back(n, sample); });
+    CHECK(again.size() == 1 && again[0].first == 0 && again[0].second == 48000);
+    u.playing = false;
+    ch = e.begin(72000, 24000, &u);
+    CHECK(ch.stopped && !ch.jumped);
+    CHECK(!e.begin(96000, 24000, &u).stopped);
+}
+
+void testClockLengths() {
+    Clock c;
+    c.setSampleRate(48000.0);
+    CHECK(c.samplesForMs(20.0) == 960);
+    CHECK(c.samplesForMs(0.0) == 1);
+    c.begin(0, 64, nullptr);
+    CHECK(c.samplesForBeats(kBeat) == 24000);
+    CHECK(c.samplesForBeats(kBeat / 3) == 8000);
+    CHECK(c.samplesForBeats(0) == 1);
+
+    Clock d;
+    d.setSampleRate(44100.0);
+    Transport t;
+    t.hasTempo = true;
+    t.tempo    = 140.0;
+    d.begin(0, 64, &t);
+    CHECK(d.samplesForBeats(kBeat) == 18900);   // 44100 * 60 / 140
+    CHECK(d.tempo() == 140.0);
+}
+
 } // namespace
 
 int main() {
@@ -628,6 +868,7 @@ int main() {
     testHeld();
     testSameKey();
     testVoices();
+    testSkip();
     testNoRoom();
     testEndAll();
     testFull();
@@ -640,6 +881,10 @@ int main() {
     testLatch();
     testSetReset();
     testSetFull();
+    testClockFree();
+    testClockOwnCount();
+    testClockHost();
+    testClockLengths();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }
