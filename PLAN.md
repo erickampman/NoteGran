@@ -6,7 +6,7 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`), the clock (`src/core/Clock`) and the random draws (`src/core/Random`) are done. "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`), the clock (`src/core/Clock`), the random draws (`src/core/Random`) and pitch (`src/core/Pitch`) are done. "NoteGran" is a working name.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -149,9 +149,16 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
 - `Quantize`: Off | EDO N (the `EDO` parameter, 1 to 96, as Retune's Divisions) | **Set**, which snaps
   a scattered pitch to the nearest member (or a member's octave), so a scatter stays in the set's
   harmony. PMU's mode-ratio discretizer is a later phase.
+- `Root` (pitch class, default **A**): where Quantize EDO's steps start, as KeyboardEDO's origin
+  (default A), so KeyboardEDO → Cloud in 31-EDO lands on the steps being played.
+- **As built (2026-10-21):** in order Octaves (Pitch draw 0, uniform over −N..+N), Transpose, Scatter
+  (Pitch draw 1, triangular), Quantize, then folded into 0..127 + 511/512 by octaves (not clamped, so
+  the top and bottom don't pile up on one key). EDO steps and Set snapping round to the nearest, a
+  half up; a Set tie (a tritone, or halfway between two members) goes down.
 - **MIDI 1.0** rounds to the nearest key. **MIDI 2.0** sends the 7.9 pitch, and the note number is the
   nearest one that's free on that channel (StageHand's rule), so two grains a few cents apart don't
-  share a key.
+  share a key: outward from the nearest key, the closer side first. With every key sounding, the
+  nearest is struck again (the same-key rule). CLAP: the same key, the fraction as its tuning.
 
 ### Velocity and length
 

@@ -11,6 +11,7 @@
 #include "core/Clock.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
+#include "core/Pitch.h"
 #include "core/Random.h"
 #include "uw/ump/Ump.h"
 
@@ -960,6 +961,162 @@ void testRandomDistributions() {
     CHECK(byCount[2] > e1 / 2 * 0.95 && byCount[2] < e1 / 2 * 1.05);
 }
 
+
+// --- pitch --------------------------------------------------------------------------------
+
+constexpr std::int32_t st(double semitones) { return static_cast<std::int32_t>(semitones * 512); }
+
+void testPitchParams() {
+    CHECK(PitchParams::fromSemitones(1.5) == 768);
+    CHECK(PitchParams::fromSemitones(-0.25) == -128);
+    CHECK(PitchParams::fromSemitones(500.0) == 127 * 512);
+    CHECK(PitchParams::fromSemitones(std::nan("")) == 0);
+}
+
+void testGrainPitch() {
+    const Random r(5);
+    NoteSet      empty;
+    PitchParams  p;
+    CHECK(grainPitch(st(60.25), p, r, 0, empty) == st(60.25));   // nothing set: unchanged
+    p.transpose = st(-7);
+    CHECK(grainPitch(st(60.25), p, r, 0, empty) == st(53.25));
+
+    // Octaves: every move from -2 to +2 octaves, about equally, and the same for the same index.
+    p           = PitchParams{};
+    p.octaves   = 2;
+    int moves[5] = {};
+    for (std::int64_t i = 0; i < 50000; ++i) {
+        const std::int32_t d = grainPitch(st(60), p, r, i, empty) - st(60);
+        CHECK(d % kOctave == 0 && d >= -2 * kOctave && d <= 2 * kOctave);
+        ++moves[d / kOctave + 2];
+        CHECK(grainPitch(st(60), p, r, i, empty) == st(60) + d);
+    }
+    for (int m : moves) CHECK(m > 9500 && m < 10500);
+
+    // Scatter: within ± its width, centred, and on its own draw: adding it doesn't change any
+    // grain's octave.
+    PitchParams s = p;
+    s.scatter     = st(2);
+    std::int64_t sum = 0;
+    for (std::int64_t i = 0; i < 50000; ++i) {
+        const std::int32_t plain = grainPitch(st(60), p, r, i, empty);
+        const std::int32_t moved = grainPitch(st(60), s, r, i, empty);
+        CHECK(moved - plain >= -st(2) && moved - plain <= st(2));
+        sum += moved - plain;
+    }
+    CHECK(sum / 50000 > -20 && sum / 50000 < 20);
+
+    // Folded into range by octaves, not clamped.
+    PitchParams up;
+    up.transpose = st(24);
+    CHECK(grainPitch(st(120), up, r, 0, empty) == st(144 - 24));
+    up.transpose = st(-24);
+    CHECK(grainPitch(st(10), up, r, 0, empty) == st(10 - 24 + 24));
+    CHECK(foldIntoRange(-100) == kOctave - 100);
+    CHECK(foldIntoRange(70000) == 70000 - kOctave);
+    CHECK(foldIntoRange(kMaxPitch) == kMaxPitch);
+}
+
+void testQuantizeEdo() {
+    // 12-EDO: the nearest semitone, wherever the root.
+    CHECK(quantizeEdo(st(60) + 200, 12, 9) == st(60));
+    CHECK(quantizeEdo(st(60) + 300, 12, 0) == st(61));
+    CHECK(quantizeEdo(st(60) + 256, 12, 0) == st(61));      // a half rounds up
+    // 24-EDO: quarter tones.
+    CHECK(quantizeEdo(st(60) + 200, 24, 9) == st(60) + 256);
+    // 31-EDO from A: A is a step, the next is 6144 / 31 = 198.19 above it.
+    CHECK(quantizeEdo(st(69), 31, 9) == st(69));
+    CHECK(quantizeEdo(st(69) + 100, 31, 9) == st(69) + 198);
+    CHECK(quantizeEdo(st(69) + 99, 31, 9) == st(69));
+    CHECK(quantizeEdo(st(69) - 100, 31, 9) == st(69) - 198);
+    CHECK(quantizeEdo(st(69) + kOctave + 5, 31, 9) == st(81));
+    // From C instead, A4 isn't a step of 31-EDO.
+    CHECK(quantizeEdo(st(69), 31, 0) == 35278);
+    // 1-EDO: octaves of the root. Out of range is clamped to 1 .. 96.
+    CHECK(quantizeEdo(st(64), 1, 9) == st(69));
+    CHECK(quantizeEdo(st(62.75), 1, 9) == st(57));
+    CHECK(quantizeEdo(st(63), 1, 9) == st(69));                 // halfway: up
+    CHECK(quantizeEdo(st(64), 0, 9) == st(69));
+    CHECK(quantizeEdo(st(60) + 40, 500, 0) == st(60) + 64); // 96-EDO: steps of 64
+    CHECK(quantizeEdo(st(60) + 30, 500, 0) == st(60));
+    // Below MIDI note 0 too.
+    CHECK(quantizeEdo(-300, 12, 0) == -512);
+}
+
+void testQuantizeSet() {
+    NoteSet set;
+    CHECK(quantizeToSet(st(61.3), set) == st(61.3));        // empty: unchanged
+    set.input(0, on2(60, 0x8000));                           // C
+    set.input(0, on2(64, 0x8000, st(64.5)));                 // a quarter-sharp E
+    CHECK(quantizeToSet(st(61), set) == st(60));
+    CHECK(quantizeToSet(st(63.5), set) == st(64.5));
+    CHECK(quantizeToSet(st(74), set) == st(72));             // any octave
+    CHECK(quantizeToSet(st(40), set) == st(40.5));
+    CHECK(quantizeToSet(st(66.5), set) == st(64.5));          // 2 to E-ish, 5.5 to C: E-ish
+    NoteSet two;
+    two.input(0, on1(60));
+    two.input(0, on1(64));
+    CHECK(quantizeToSet(st(62), two) == st(60));             // a tie goes down
+    CHECK(quantizeToSet(st(66), two) == st(64));             // 2 to E, 6 to C
+    NoteSet one;
+    one.input(0, on1(60));
+    CHECK(quantizeToSet(st(66), one) == st(60));             // a tritone either way: down
+
+    // Scatter with Quantize Set stays in the set's pitch classes.
+    const Random r(11);
+    PitchParams  p;
+    p.octaves  = 1;
+    p.scatter  = st(7);
+    p.quantize = Quantize::Set;
+    for (std::int64_t i = 0; i < 5000; ++i) {
+        const std::int32_t g  = grainPitch(st(60), p, r, i, set);
+        const std::int32_t pc = g % kOctave;
+        CHECK(pc == 0 || pc == st(4.5));
+    }
+}
+
+void testChooseKey() {
+    auto none = [](std::uint8_t) { return false; };
+    KeyChoice c = chooseKey(st(60) + 300, Dialect::Midi1, none);
+    CHECK(c.key == 61 && c.pitch79 == 61 << 9);
+    c = chooseKey(st(60) + 300, Dialect::Midi2, none);
+    CHECK(c.key == 61 && c.pitch79 == st(60) + 300);
+    c = chooseKey(st(60) + 300, Dialect::Clap, none);
+    CHECK(c.key == 61 && c.pitch79 == st(60) + 300);
+
+    // The nearest free key, the closer side first.
+    OwnedNotes table;
+    table.setVoices(32);
+    Out o(8);
+    table.start(note(0, kHeld, 61), o.out);
+    auto sounding = [&table](std::uint8_t k) { return table.sounding(0, 0, k); };
+    c = chooseKey(st(60) + 300, Dialect::Midi2, sounding);   // 61 sounding: 60 is 300 away, 62 is 724
+    CHECK(c.key == 60 && c.pitch79 == st(60) + 300);
+    c = chooseKey(st(61) + 300, Dialect::Midi2, sounding);   // nearest is 62, free
+    CHECK(c.key == 62);
+    c = chooseKey(st(60) + 256, Dialect::Midi2, sounding);   // rounds to 61; 60 and 62 tie: below
+    CHECK(c.key == 60);
+    table.start(note(0, kHeld, 60), o.out);
+    c = chooseKey(st(60) + 300, Dialect::Midi2, sounding);
+    CHECK(c.key == 62);
+    // MIDI 1.0 strikes the nearest again, sounding or not (the same-key rule ends the old one).
+    CHECK(chooseKey(st(60) + 300, Dialect::Midi1, sounding).key == 61);
+    // Another channel's keys don't count.
+    auto other = [&table](std::uint8_t k) { return table.sounding(0, 1, k); };
+    CHECK(chooseKey(st(60) + 300, Dialect::Midi2, other).key == 61);
+
+    // Every key sounding: the nearest. The top and bottom of the range.
+    auto all = [](std::uint8_t) { return true; };
+    CHECK(chooseKey(st(60) + 300, Dialect::Midi2, all).key == 61);
+    CHECK(chooseKey(kMaxPitch, Dialect::Midi2, none).key == 127);
+    CHECK(chooseKey(kMaxPitch, Dialect::Midi1, none).pitch79 == 127 << 9);
+    auto top = [](std::uint8_t k) { return k == 127; };
+    CHECK(chooseKey(kMaxPitch, Dialect::Midi2, top).key == 126);
+    auto bottom = [](std::uint8_t k) { return k == 0; };
+    CHECK(chooseKey(0, Dialect::Midi2, bottom).key == 1);
+    CHECK(chooseKey(-500, Dialect::Midi2, none).pitch79 == 0);
+}
+
 } // namespace
 
 int main() {
@@ -989,6 +1146,11 @@ int main() {
     testRandomPinned();
     testRandomIndependent();
     testRandomDistributions();
+    testPitchParams();
+    testGrainPitch();
+    testQuantizeEdo();
+    testQuantizeSet();
+    testChooseKey();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -18,7 +18,8 @@ set(UW_CORE_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${NOTEGRAN_UW_CORE_DIR} uw-core)
 
 # --- core: the shared note logic over uw::ump, no CLAP ----------------------------------------
-add_library(notegran_core STATIC src/core/Clock.cpp src/core/NoteSet.cpp src/core/OwnedNotes.cpp src/core/Random.cpp)
+add_library(notegran_core STATIC src/core/Clock.cpp src/core/NoteSet.cpp src/core/OwnedNotes.cpp src/core/Pitch.cpp
+    src/core/Random.cpp)
 target_include_directories(notegran_core PUBLIC src)
 target_link_libraries(notegran_core PUBLIC uw::ump)
 set_target_properties(notegran_core PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
