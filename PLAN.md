@@ -263,17 +263,60 @@ A transformer: each note held becomes a chord built on it in a scale. The output
 held as long as the input note, so Chords can feed an assigner (Chords → Cloud) or a synth directly.
 Long wanted on its own (2026-10-21); it fits here because a chord is just a set.
 
-- **The scale** is a set of steps of an N-EDO, from a root: 12-EDO major is `0 2 4 5 7 9 11`, 31-EDO
-  meantone major `0 5 10 13 18 23 28`. `EDO`, `Root` and `Scale` (a menu of built-in scales per EDO).
-- **The scale can come from a set** (`Scale from`: Menu | Scale channel): notes held (or latched) on
-  the scale channel are the scale, by pitch class. Play a scale on KeyboardEDO, or hold it with a
-  one-slot sequence, and Chords uses it. That's also the way round the hardest UI problem (below):
-  a custom scale needs no editor.
-- **An input note** goes to its scale degree. `Off-scale` (an input note not in the scale): Nearest
-  degree | Pass (the note alone) | Drop.
+- **Microtonalizing a familiar scale (decided 2026-10-21).** Take a scale everyone knows, find the
+  notes of an N-EDO close to it, and build each degree's chord there. Example, lydian dominant in
+  19-EDO:
+
+  | Degree | C | D | E | F# | G | A | Bb |
+  |---|---|---|---|---|---|---|---|
+  | 19-EDO step | 0 | 3 | 6 | 9 | 11 | 14 | 16 |
+  | Cents | 0 | 189 | 379 | 568 | 695 | 884 | 1011 |
+
+  Its triads keep their qualities with 19-EDO intervals (C and D major, 6 + 5 steps; E and F#
+  diminished; G and A minor; Bb augmented), and C's seventh is 16 steps (1011¢).
+- **Familiar scales are stored spelled** (F# is not Gb): each degree as its place on the chain of
+  fifths, e.g. lydian dominant `0 2 4 6 1 3 −2` (C D E F# G A Bb). The menu: the modes of major, of
+  melodic minor (lydian dominant among them) and of harmonic minor, harmonic major, the
+  pentatonics, whole tone. One list for every EDO: the mapping does the rest (so open question 3 is
+  mostly answered).
+- `Map`: **By fifths** (the default) | **Nearest**.
+  - *By fifths:* a degree n fifths from the key goes to n × F mod N steps, F the EDO's own fifth
+    (its nearest to 702¢: 11 of 19, 18 of 31, 13 of 22). It keeps the scale's structure (thirds stay
+    thirds) and gives the EDO's own character: in 22-EDO, E above C is 436¢ (superpyth). Never ties.
+  - *Nearest:* each degree to the step nearest its 12-EDO cents. Closest to the familiar sound; in
+    22-EDO, E is 382¢. A tie (F# in 19-EDO, exactly between 9 and 10) goes by the spelling: a sharp up,
+    a flat down. Two degrees landing on one step (small EDOs) merge.
+- **Where the grid is:** `EDO`, and `Origin` (a pitch class, default **A**): step 0 of the EDO, as
+  KeyboardEDO's origin and Cloud's Quantize EDO `Root`, so all three agree. (Cloud's parameter shows
+  as "Root" today; it's the same thing, and could be renamed "Origin" in display only, keeping its
+  state symbol.) `Key` (a spelled pitch class, Cb .. C#) is placed on that grid by the same `Map`:
+  with an A origin in 19-EDO, C is 5 steps up (316¢), not 300¢.
+- **The scale can come from a set** instead (`Scale from`: Familiar | Scale channel): notes held (or
+  latched) on the scale channel are the scale, already in the EDO, by pitch class. Play a scale on
+  KeyboardEDO, or hold it with a one-slot sequence. No mapping then, and no editor needed for a
+  custom scale.
+- `Input`: **Familiar** | **EDO** (decided 2026-10-21), what a played note is matched against:
+  - *Familiar:* an ordinary 12-EDO keyboard. A note's nearest 12-EDO key is in the scale if it's one
+    of the familiar degrees (D, in C lydian dominant); its chord comes out in the EDO. (Matching
+    against the mapped steps instead would fail: in 22-EDO by fifths, a played E at 400¢ is far from
+    its step at 436¢.)
+  - *EDO:* KeyboardEDO (or anything) playing the EDO. A note's nearest EDO step is in the scale if
+    it's one of the mapped degrees.
+- **An in-scale note sounds on its EDO step** (decided 2026-10-21): played D comes out at 189¢ with
+  its chord, so the whole chord is in the EDO. `Off-scale`: **Pass** (the default, decided
+  2026-10-21: the note alone, as played, no chord) | Nearest degree | Drop.
 - **The chord** stacks degrees from there: `Size` (1 to 6 notes), `Stack` (every 2nd degree for
   thirds, 3rd for fourths, 4th for fifths), `Inversion`, `Voicing` (Close | Open | Drop-2 | Spread) and
   `Octave`. Size 1 is a scale quantizer.
+- **MIDI 1.0 can't carry a microtone.** A chord in an EDO other than 12 from a MIDI 1.0 note would be
+  rounded back to 12-EDO keys. So Chords sends a chord note with a fraction as MIDI 2.0 (the host
+  translates down for a synth that takes only MIDI 1.0), the one exception to "output in its note's
+  dialect" (open question 10, decided 2026-10-21). In 12-EDO nothing has a fraction: MIDI 1.0 stays. StageHand gives plugins MIDI 2.0 anyway; Bitwig sends CLAP notes, which carry
+  tuning.
+- **Chord shapes (later):** chords that aren't stacked from the scale, mapped into the EDO by
+  nearest step: the harmonic 4:5:6:7 (its 7th, 969¢, is 15 steps of 19 or 25 of 31), neutral triads
+  (where the EDO has a neutral third: 9 steps of 31, 348¢; 19-EDO has none), otonal and utonal
+  chords. `Chord`: From scale | a shape.
 - **Latching, as Retune's:** each input note remembers the chord it made, so a change to the scale or
   the settings while notes are held can't leave a chord note sounding. New notes get new chords.
 - **Two input notes making overlapping chords** share keys: a chord note already sounding from another
@@ -456,8 +499,9 @@ position, turning each `NoteEvent` into its own events.
 1. **The name.** NoteGran is a working name, and with Chords in the family it fits less well.
 2. **Hold over:** is 20 ms right for a sequence struck again, and should a looper's or a player's
    quick re-strike count too? (Proposed: one setting for all.)
-3. **Chords' built-in scales** per EDO: which ones, and where the list comes from (KeyboardEDO's
-   layouts, or Scala files later)?
+3. ~~**Chords' built-in scales** per EDO~~: one list of familiar scales, stored spelled, mapped into
+   any EDO (decided 2026-10-21, Chords). Still open: which "native" EDO scales (MOS scales, e.g.
+   19-EDO's or 31-EDO's own) to add beside them.
 4. **Chords' "related" chords:** which moves first, and how they're defined outside 12-EDO.
 5. **Buffer's Fragment mode:** should a fragment keep its notes' own lengths when they run past the
    grain's end, or always cut them there? (Proposed: cut.)
@@ -470,3 +514,4 @@ position, turning each `NoteEvent` into its own events.
    which only matter when the input is CLAP notes. Check that before phase 2.
 9. ~~**Dry in MIDI 1.0:**~~ Decided 2026-10-21: a grain on the key and channel of a dry
    (passed-through) note is skipped.
+10. ~~**Chords from MIDI 1.0 input in an EDO other than 12**~~: decided 2026-10-21, sent as MIDI 2.0.
