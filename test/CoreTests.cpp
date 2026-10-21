@@ -1,5 +1,6 @@
 // NoteGran core tests (PLAN.md, phase 1). Silent unless a check fails.
 
+#include <algorithm>
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
@@ -10,6 +11,7 @@
 #include "core/Clock.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
+#include "core/Random.h"
 #include "uw/ump/Ump.h"
 
 using namespace notegran;
@@ -859,6 +861,105 @@ void testClockLengths() {
     CHECK(d.tempo() == 140.0);
 }
 
+
+// --- random draws -------------------------------------------------------------------------
+
+void testRandomPinned() {
+    // These values are part of what a fixed seed sounds like. If one changes, so does every saved
+    // song's output: version it (PLAN.md, "Integration"), don't just update the numbers.
+    const Random r(1234);
+    CHECK(r.bits(Stream::Timing, 0) == 0x5caceb7b9e631c50ull);
+    CHECK(r.bits(Stream::Pick, 0) == 0xf09d263a1ae25cd8ull);
+    CHECK(r.bits(Stream::Timing, 1) == 0x4cb30a9c2572de08ull);
+    CHECK(r.bits(Stream::Timing, 0, 1) == 0xfcc281fd6bbcd27eull);
+    const Random z(0);
+    CHECK(z.bits(Stream::Pitch, -5, 3) == 0x472a5d44be438723ull);
+    CHECK(z.below(12, Stream::Pick, 1000) == 9);
+}
+
+void testRandomIndependent() {
+    // The same arguments give the same draw, in any order; any argument changed gives another.
+    const Random a(7), b(7), c(8);
+    CHECK(a.bits(Stream::Pick, 99, 2) == b.bits(Stream::Pick, 99, 2));
+    CHECK(a.bits(Stream::Pick, 99, 2) != c.bits(Stream::Pick, 99, 2));
+    std::vector<std::uint64_t> seen;
+    for (std::int64_t i = -500; i < 500; ++i)
+        for (std::uint32_t s = 1; s <= 7; ++s)
+            for (std::uint32_t d = 0; d < 4; ++d) seen.push_back(a.bits(static_cast<Stream>(s), i, d));
+    std::sort(seen.begin(), seen.end());
+    CHECK(std::adjacent_find(seen.begin(), seen.end()) == seen.end());   // 28000 draws, no repeats
+
+    // Streams are uncorrelated: a pick stream's coin doesn't follow the timing stream's.
+    int agree = 0;
+    for (std::int64_t i = 0; i < 100000; ++i)
+        agree += (a.bits(Stream::Timing, i) >> 63) == (a.bits(Stream::Pick, i) >> 63);
+    CHECK(agree > 49000 && agree < 51000);
+}
+
+void testRandomDistributions() {
+    const Random r(42);
+    constexpr int kN = 200000;
+
+    // below: in range, every value about equally often.
+    int counts[12] = {};
+    for (int i = 0; i < kN; ++i) {
+        const std::uint32_t v = r.below(12, Stream::Pick, i);
+        CHECK(v < 12);
+        if (v < 12) ++counts[v];
+    }
+    for (int c : counts) CHECK(c > kN / 12 * 95 / 100 && c < kN / 12 * 105 / 100);
+    CHECK(r.below(0, Stream::Pick, 1) == 0);
+    CHECK(r.below(1, Stream::Pick, 1) == 0);
+
+    // unit: in [0, 1), mean a half.
+    std::int64_t sum = 0;
+    for (int i = 0; i < kN; ++i) {
+        const std::int64_t u = r.unit(Stream::Velocity, i);
+        CHECK(u >= 0 && u < kOne32);
+        sum += u >> 16;
+    }
+    const double mean = static_cast<double>(sum) / kN / 65536.0;
+    CHECK(mean > 0.49 && mean < 0.51);
+
+    // triangular: in [-1, 1), mean 0, and half of it within ±0.29 (1 - 1/sqrt 2).
+    std::int64_t tsum = 0;
+    int          near = 0;
+    for (int i = 0; i < kN; ++i) {
+        const std::int64_t t = r.triangular(Stream::Pitch, i);
+        CHECK(t >= -kOne32 && t < kOne32);
+        tsum += t >> 16;
+        if (t > -kOne32 * 29 / 100 && t < kOne32 * 29 / 100) ++near;
+    }
+    const double tmean = static_cast<double>(tsum) / kN / 65536.0;
+    CHECK(tmean > -0.01 && tmean < 0.01);
+    CHECK(near > kN * 48 / 100 && near < kN * 52 / 100);
+
+    // chance: never, always, and about right between.
+    int hits = 0;
+    for (int i = 0; i < kN; ++i) {
+        CHECK(!r.chance(0, Stream::Chance, i));
+        CHECK(r.chance(kOne32, Stream::Chance, i));
+        hits += r.chance(kOne32 / 4, Stream::Chance, i);
+    }
+    CHECK(hits > kN / 4 * 97 / 100 && hits < kN / 4 * 103 / 100);
+
+    // poisson1: mean 1, P(0) = P(1) = e^-1, P(2) = e^-1 / 2.
+    int          byCount[14] = {};
+    std::int64_t total       = 0;
+    for (int i = 0; i < kN; ++i) {
+        const std::uint32_t k = r.poisson1(Stream::Timing, i);
+        CHECK(k <= 12);
+        if (k <= 12) ++byCount[k];
+        total += k;
+    }
+    const double pmean = static_cast<double>(total) / kN;
+    CHECK(pmean > 0.98 && pmean < 1.02);
+    const double e1 = std::exp(-1.0) * kN;
+    CHECK(byCount[0] > e1 * 0.97 && byCount[0] < e1 * 1.03);
+    CHECK(byCount[1] > e1 * 0.97 && byCount[1] < e1 * 1.03);
+    CHECK(byCount[2] > e1 / 2 * 0.95 && byCount[2] < e1 / 2 * 1.05);
+}
+
 } // namespace
 
 int main() {
@@ -885,6 +986,9 @@ int main() {
     testClockOwnCount();
     testClockHost();
     testClockLengths();
+    testRandomPinned();
+    testRandomIndependent();
+    testRandomDistributions();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

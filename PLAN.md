@@ -6,7 +6,7 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`) and the clock (`src/core/Clock`) are done. "NoteGran" is a working name.
+**Status (2026-10-21):** phase 1 under way. The build, the owned-note table (`src/core/OwnedNotes`) the set (`src/core/NoteSet`), the clock (`src/core/Clock`) and the random draws (`src/core/Random`) are done. "NoteGran" is a working name.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -194,7 +194,13 @@ StageHand and Bitwig. All of them share the core (below), so a fix to note handl
   play a generator clip from bar 5 exactly as from bar 1 (Integration, below), and output can't depend
   on block size. Separate streams for timing, picks, pitch, velocity and position, so turning one knob
   doesn't reshuffle the others.
-- `Seed` (0 to 9999; **0 = new each start**, the default). With a seed set, the same input at the same
+- **As built (2026-10-21):** SplitMix64's finaliser, chained over seed, stream, index (a clock slot
+  n, or a trigger's count) and draw number. Integer distributions only: below(n), unit and
+  triangular (Q32), chance, and a Poisson(1) count (by its CDF in Q32, no `exp`) for onset dust.
+  Streams: Timing, Pick, Pitch, Velocity, Length, Position, Chance. The tests pin some values: a
+  change to them changes saved songs, so it's versioned, not just re-pinned.
+- `Seed` (0 to 9999; **0 = new each start**, the default). The core takes whatever seed it's given;
+  "new each start" is the plugin layer's, which picks one at `activate()`, off the audio thread. With a seed set, the same input at the same
   times gives exactly the same output, on any machine. Umpire records a NoteGran's output as plain
   notes, and a fixed seed makes a retake repeatable.
 - No floating-point code that can differ between compilers in the timing path (integer samples and
@@ -351,7 +357,7 @@ NoteGran/
   buffer, time from the caller. Where it ends up: Integration, below.
 - **Scales are shared with KeyboardEDO** in spirit: an EDO scale here should mean what a KeyboardEDO
   layout's tuning means. If both need the same table, it's a candidate for that shared layer.
-- **PMU's code** (the attractor, the triangular draws, the LCG, the tier classifier, `ModalDiscretizer`)
+- **PMU's code** (the attractor, the tier classifier, `ModalDiscretizer`)
   is copied in where needed, with a note naming the PMU file it came from.
 
 ## Integration (2026-10-21)
