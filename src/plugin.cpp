@@ -1,5 +1,5 @@
 // src/plugin.cpp — NoteGran: the CLAP plugins around the core. One .clap whose factory lists one
-// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud and NoteGran Chords. Each has its own
+// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud, Chords and Grid. Each has its own
 // parameter table, state header and core; the events, dialects, block splitting and state code are
 // shared. A note effect: one note
 // input and one note output port, CLAP | MIDI | MIDI2, preferring MIDI2 (as Retune). Hand-written
@@ -30,6 +30,7 @@
 
 #include "core/Chords.h"
 #include "core/Cloud.h"
+#include "core/Grid.h"
 #include "core/Shape.h"
 #include "uw/ump/Ump.h"
 
@@ -147,9 +148,72 @@ const ParamSpec kChordsParams[] = {
     {"When full", "when_full", 0, 1, 0, Kind::Menu, kWhenFullLabels, ""},
 };
 
+// --- NoteGran Grid ---
+
+const char* const kMeterLabels[]    = {"Straight", "5 (3+2)", "5 (2+3)", "7 (2+2+3)", "7 (3+2+2)", "7 (2+3+2)", "9 (3+3+3)"};
+const char* const kTierPickLabels[] = {"Lowest", "Highest", "Next", "Random"};
+
+enum GridParamId : std::uint32_t {
+    kGRate, kGMeter, kGDensity, kGSmear, kGScatter, kGLength, kGLenSpread, kGVelSpread, kGTranspose, kGQuantize,
+    kGEdo, kGRoot, kGVoices, kGWhenFull, kGDry, kGHoldOver, kGSetChannel, kGTriggerChannel, kGLatch, kGSeed,
+    kGTiers,   // then, per tier: Probability, Level, Offset, Chaos, Pick
+};
+constexpr std::uint32_t kGTierParams = 5;
+
+// Tiers (PLAN.md, "NoteGran Grid"): in Straight, 1 the bar's downbeat, 2 the half, 3 the quarters,
+// 4 the eighths, 5 the sixteenths; in a grouped meter, the groups' downbeats, then the other beats,
+// then the off-beats.
+const ParamSpec kGridParams[] = {
+    {"Rate", "rate", 0, 7, 5, Kind::Menu, kRateLabels, ""},
+    {"Meter", "meter", 0, 6, 0, Kind::Menu, kMeterLabels, ""},
+    {"Density", "density", 1, 4, 1, Kind::Number, nullptr, ""},
+    {"Smear", "smear", 0, 1, 0.5, Kind::Number, nullptr, ""},
+    {"Scatter", "scatter", 0, 24, 12, Kind::Number, nullptr, "st"},
+    {"Length", "length_beats", 1.0 / 64, 16, 0.125, Kind::Number, nullptr, "beats"},
+    {"Length spread", "length_spread", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Velocity spread", "velocity_spread", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Transpose", "transpose", -48, 48, 0, Kind::Number, nullptr, "st"},
+    {"Quantize", "quantize", 0, 2, 0, Kind::Menu, kQuantizeLabels, ""},
+    {"EDO", "edo", 1, 96, 12, Kind::Stepped, nullptr, ""},
+    {"Root", "root", 0, 11, 9, Kind::Menu, kRootLabels, ""},
+    {"Voices", "voices", 1, 32, 8, Kind::Stepped, nullptr, ""},
+    {"When full", "when_full", 0, 1, 0, Kind::Menu, kWhenFullLabels, ""},
+    {"Dry", "dry", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Hold over", "hold_over", 0, 200, 20, Kind::Number, nullptr, "ms"},
+    {"Set channel", "set_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},
+    {"Trigger channel", "trigger_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},
+    {"Latch", "latch", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Seed", "seed", 0, 9999, 0, Kind::Stepped, nullptr, ""},
+    {"Tier 1 Probability", "t1_probability", 0, 1, 1, Kind::Number, nullptr, ""},
+    {"Tier 1 Level", "t1_level", 0, 2, 1, Kind::Number, nullptr, ""},
+    {"Tier 1 Offset", "t1_offset", -24, 24, 0, Kind::Number, nullptr, "st"},
+    {"Tier 1 Chaos", "t1_chaos", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Tier 1 Pick", "t1_pick", 0, 3, 0, Kind::Menu, kTierPickLabels, ""},
+    {"Tier 2 Probability", "t2_probability", 0, 1, 1, Kind::Number, nullptr, ""},
+    {"Tier 2 Level", "t2_level", 0, 2, 0.85, Kind::Number, nullptr, ""},
+    {"Tier 2 Offset", "t2_offset", -24, 24, 0, Kind::Number, nullptr, "st"},
+    {"Tier 2 Chaos", "t2_chaos", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Tier 2 Pick", "t2_pick", 0, 3, 2, Kind::Menu, kTierPickLabels, ""},
+    {"Tier 3 Probability", "t3_probability", 0, 1, 1, Kind::Number, nullptr, ""},
+    {"Tier 3 Level", "t3_level", 0, 2, 0.75, Kind::Number, nullptr, ""},
+    {"Tier 3 Offset", "t3_offset", -24, 24, 0, Kind::Number, nullptr, "st"},
+    {"Tier 3 Chaos", "t3_chaos", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Tier 3 Pick", "t3_pick", 0, 3, 2, Kind::Menu, kTierPickLabels, ""},
+    {"Tier 4 Probability", "t4_probability", 0, 1, 0.75, Kind::Number, nullptr, ""},
+    {"Tier 4 Level", "t4_level", 0, 2, 0.65, Kind::Number, nullptr, ""},
+    {"Tier 4 Offset", "t4_offset", -24, 24, 0, Kind::Number, nullptr, "st"},
+    {"Tier 4 Chaos", "t4_chaos", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Tier 4 Pick", "t4_pick", 0, 3, 2, Kind::Menu, kTierPickLabels, ""},
+    {"Tier 5 Probability", "t5_probability", 0, 1, 0.5, Kind::Number, nullptr, ""},
+    {"Tier 5 Level", "t5_level", 0, 2, 0.55, Kind::Number, nullptr, ""},
+    {"Tier 5 Offset", "t5_offset", -24, 24, 0, Kind::Number, nullptr, "st"},
+    {"Tier 5 Chaos", "t5_chaos", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Tier 5 Pick", "t5_pick", 0, 3, 3, Kind::Menu, kTierPickLabels, ""},
+};
+
 // --- the plugins ---
 
-enum class Which : std::uint8_t { Cloud, Chords };
+enum class Which : std::uint8_t { Cloud, Chords, Grid };
 
 struct PluginDef {
     const clap_plugin_descriptor_t* desc;
@@ -159,7 +223,7 @@ struct PluginDef {
     const char*                     stateHeader;   // then the version, then "symbol value" lines
 };
 
-constexpr std::uint32_t kMaxParams = 32;
+constexpr std::uint32_t kMaxParams = 64;
 
 double clampParam(const PluginDef& def, std::uint32_t id, double value) {
     const ParamSpec& s = def.params[id];
@@ -191,7 +255,9 @@ struct Plugin {
     std::atomic<bool>   valuesChangedByState{false};   // state_load → process: re-apply
 
     std::unique_ptr<CloudCore>  cloud;    // the one this plugin is
+    std::unique_ptr<GridCore>   grid;
     std::unique_ptr<ChordsCore> chords;
+    Assigner*                   assigner = nullptr;   // cloud or grid
     std::uint64_t startSeed = 1;       // Seed 0: chosen at activate
     std::int64_t  now       = 0;       // absolute sample count at the block's start
     bool          endAll    = false;   // reset / reactivation: end what's sounding first
@@ -265,8 +331,47 @@ ChordsParams chordsParams(const Plugin* p) {
     return c;
 }
 
+GridParams gridParams(const Plugin* p) {
+    GridParams g;
+    AssignerSettings& a = g.settings;
+    a.voices            = intValue(p, kGVoices);
+    a.whenFull          = intValue(p, kGWhenFull) == 1 ? WhenFull::Steal : WhenFull::Skip;
+    a.dry               = intValue(p, kGDry) == 1;
+    a.holdOverMs        = value(p, kGHoldOver);
+    a.setChannel        = intValue(p, kGSetChannel) - 1;
+    a.triggerChannel    = intValue(p, kGTriggerChannel) - 1;
+    a.latch             = intValue(p, kGLatch) == 1;
+    const int seed      = intValue(p, kGSeed);
+    a.seed              = seed == 0 ? p->startSeed : static_cast<std::uint64_t>(seed);
+    const int rate      = std::clamp(intValue(p, kGRate), 0, 7);
+    g.rateNum           = kRateNum[rate];
+    g.rateDen           = kRateDen[rate];
+    g.meter             = static_cast<Meter>(std::clamp(intValue(p, kGMeter), 0, 6));
+    g.density           = toQ16(value(p, kGDensity));
+    g.smear             = toQ16(value(p, kGSmear));
+    g.scatter           = PitchParams::fromSemitones(value(p, kGScatter));
+    g.lengthBeats       = std::llround(value(p, kGLength) * static_cast<double>(kBeat));
+    g.lenSpread         = toQ16(value(p, kGLenSpread));
+    g.velSpread         = toQ16(value(p, kGVelSpread));
+    g.pitch.transpose   = PitchParams::fromSemitones(value(p, kGTranspose));
+    g.pitch.quantize    = static_cast<Quantize>(std::clamp(intValue(p, kGQuantize), 0, 2));
+    g.pitch.edo         = intValue(p, kGEdo);
+    g.pitch.root        = intValue(p, kGRoot);
+    for (std::uint32_t t = 0; t < kTiers; ++t) {
+        const std::uint32_t base = kGTiers + t * kGTierParams;
+        GridTier&           tier = g.tiers[t];
+        tier.probability         = toQ16(value(p, base));
+        tier.level               = toQ16(value(p, base + 1));
+        tier.offset              = PitchParams::fromSemitones(value(p, base + 2));
+        tier.chaos               = toQ16(value(p, base + 3));
+        tier.pick                = static_cast<TierPick>(std::clamp(intValue(p, base + 4), 0, 3));
+    }
+    return g;
+}
+
 void applyParams(Plugin* p) {
     if (p->cloud) p->cloud->setParams(cloudParams(p));
+    if (p->grid) p->grid->setParams(gridParams(p));
     if (p->chords) p->chords->setParams(chordsParams(p));
 }
 
@@ -429,7 +534,7 @@ bool plug_activate(const clap_plugin_t* plugin, double sampleRate, std::uint32_t
     // Seed 0: a new seed each start (main thread, so random_device is fine here).
     std::random_device device;
     p->startSeed = (std::uint64_t{device()} << 32 | device()) | 1;
-    if (p->cloud) p->cloud->setSampleRate(sampleRate);
+    if (p->assigner) p->assigner->setSampleRate(sampleRate);
     applyParams(p);
     p->valuesChangedByState.store(false, std::memory_order_relaxed);
     p->endAll = true;   // anything left from before ends first
@@ -453,7 +558,7 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
     NoteOut     notes(p->notes.data(), p->notes.size());
     std::size_t passed = 0;
     if (p->endAll) {
-        if (p->cloud) p->cloud->reset(blockStart, notes);
+        if (p->assigner) p->assigner->reset(blockStart, notes);
         if (p->chords) p->chords->reset(blockStart, notes);
         p->endAll = false;
     }
@@ -464,8 +569,9 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
     auto runUntil = [&](std::int64_t until) {
         if (until <= from) return;
         NoteOut rest(p->notes.data() + notes.size(), p->notes.size() - notes.size());
-        if (p->cloud)
-            p->cloud->process(from, until - from, p->hasTransport ? &p->transport : nullptr, p->inputs.data(), inputs, rest);
+        if (p->assigner)
+            p->assigner->process(from, until - from, p->hasTransport ? &p->transport : nullptr, p->inputs.data(), inputs,
+                                 rest);
         if (p->chords) p->chords->process(p->inputs.data(), inputs, rest);
         for (std::size_t i = 0; i < rest.size(); ++i) notes.push(rest[i]);
         for (std::size_t i = 0; i < inputs; ++i)
@@ -536,7 +642,7 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
             pushNote(notes[b++], offset, process->out_events);
         }
     }
-    const bool busy = (p->cloud && p->cloud->busy()) || (p->chords && p->chords->busy());
+    const bool busy = (p->assigner && p->assigner->busy()) || (p->chords && p->chords->busy());
     return busy ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
 }
 
@@ -602,6 +708,10 @@ const char* zeroText(const PluginDef& def, clap_id id) {
         if (id == kSetChannel) return "All";
         if (id == kTriggerChannel) return "None";
         if (id == kSeed) return "New each start";
+    } else if (def.which == Which::Grid) {
+        if (id == kGSetChannel) return "All";
+        if (id == kGTriggerChannel) return "None";
+        if (id == kGSeed) return "New each start";
     } else if (id == kScaleChannel) {
         return "None";
     }
@@ -756,10 +866,25 @@ const clap_plugin_descriptor_t kChords = {
     .features     = kFeatures,
 };
 
-// One per plugin, in the factory's order; the next ones (Grid, Burst, Buffer) are appended.
+const clap_plugin_descriptor_t kGrid = {
+    .clap_version = CLAP_VERSION_INIT,
+    .id           = "com.unlikelyware.notegran.grid",
+    .name         = "NoteGran Grid",
+    .vendor       = "Unlikelyware",
+    .url          = "https://unlikelyware.com",
+    .manual_url   = "",
+    .support_url  = "",
+    .version      = NOTEGRAN_VERSION_STRING,
+    .description  = "Notes on a beat grid whose positions have tiers (bar, beats, off-beats), each with its "
+                    "own chance, level, offset and pick from the notes held on its input.",
+    .features     = kFeatures,
+};
+
+// One per plugin, in the factory's order; the next ones (Burst, Buffer) are appended.
 const PluginDef kPlugins[] = {
     {&kCloud, Which::Cloud, kCloudParams, sizeof(kCloudParams) / sizeof(kCloudParams[0]), "NoteGran Cloud "},
     {&kChords, Which::Chords, kChordsParams, sizeof(kChordsParams) / sizeof(kChordsParams[0]), "NoteGran Chords "},
+    {&kGrid, Which::Grid, kGridParams, sizeof(kGridParams) / sizeof(kGridParams[0]), "NoteGran Grid "},
 };
 constexpr std::uint32_t kPluginCount = sizeof(kPlugins) / sizeof(kPlugins[0]);
 
@@ -772,14 +897,23 @@ const clap_plugin_t* factory_create(const clap_plugin_factory_t*, const clap_hos
     if (p == nullptr) return nullptr;
     p->host = host;
     p->def  = def;
-    if (def->which == Which::Cloud) p->cloud.reset(new (std::nothrow) CloudCore());
-    else p->chords.reset(new (std::nothrow) ChordsCore());
-    if (!p->cloud && !p->chords) {
+    switch (def->which) {
+    case Which::Cloud:
+        p->cloud.reset(new (std::nothrow) CloudCore());
+        p->assigner = p->cloud.get();
+        break;
+    case Which::Grid:
+        p->grid.reset(new (std::nothrow) GridCore());
+        p->assigner = p->grid.get();
+        break;
+    case Which::Chords: p->chords.reset(new (std::nothrow) ChordsCore()); break;
+    }
+    if (p->assigner == nullptr && !p->chords) {
         delete p;
         return nullptr;
     }
     for (std::uint32_t i = 0; i < def->count; ++i) p->values[i].store(def->params[i].def, std::memory_order_relaxed);
-    if (p->cloud) p->cloud->setSampleRate(48000.0);
+    if (p->assigner) p->assigner->setSampleRate(48000.0);
     applyParams(p);
     p->clap = clap_plugin_t{
         .desc             = def->desc,

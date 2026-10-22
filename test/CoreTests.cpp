@@ -14,6 +14,7 @@
 #include "core/Chords.h"
 #include "core/Clock.h"
 #include "core/Cloud.h"
+#include "core/Grid.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
 #include "core/Pitch.h"
@@ -1738,6 +1739,184 @@ void testChordsScaleChannel() {
     CHECK(chordsRun(e, in).empty() && in[0].pass);
 }
 
+
+// --- Grid ---------------------------------------------------------------------------------
+
+CloudRun runGrid(const GridParams& params, std::vector<InputEvent> inputs, std::int64_t length, bool oneBlock,
+                 const TransportFn& transport = nullptr, std::uint32_t sizesSeed = 777) {
+    auto core = std::make_unique<GridCore>();
+    core->setSampleRate(48000.0);
+    core->setParams(params);
+    CloudRun               run;
+    std::vector<NoteEvent> buffer(8192);
+    Sizes                  sizes;
+    sizes.lcg      = sizesSeed;
+    std::size_t in = 0;
+    for (std::int64_t start = 0; start < length;) {
+        const std::int64_t frames = oneBlock ? length : std::min(sizes.next(), length - start);
+        const std::size_t  first  = in;
+        while (in < inputs.size() && inputs[in].time < start + frames) ++in;
+        NoteOut          out(buffer.data(), buffer.size());
+        Transport        t;
+        const Transport* tp = transport ? transport(start, t) : nullptr;
+        core->process(start, frames, tp, inputs.data() + first, in - first, out);
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            CHECK(out[i].time >= start && out[i].time < start + frames);
+            run.events.push_back(out[i]);
+        }
+        start += frames;
+    }
+    for (const InputEvent& i : inputs) run.passed.push_back(i.pass);
+    return run;
+}
+
+void testGridTiers() {
+    CHECK(meterCycle(Meter::Straight) == 16 && meterCycle(Meter::Five32) == 10 && meterCycle(Meter::Nine333) == 18);
+    const int straight[16] = {0, 4, 3, 4, 2, 4, 3, 4, 1, 4, 3, 4, 2, 4, 3, 4};
+    for (int t = 0; t < 16; ++t) CHECK(tierOf(Meter::Straight, t) == straight[t]);
+    CHECK(tierOf(Meter::Straight, 16) == 0 && tierOf(Meter::Straight, -1) == 4 && tierOf(Meter::Straight, -8) == 1);
+    const int five32[10] = {0, 3, 2, 3, 2, 3, 1, 3, 2, 3};
+    for (int t = 0; t < 10; ++t) CHECK(tierOf(Meter::Five32, t) == five32[t]);
+    CHECK(tierOf(Meter::Five23, 4) == 1 && tierOf(Meter::Five23, 6) == 2);
+    const int seven223[14] = {0, 4, 3, 4, 1, 4, 3, 4, 2, 4, 3, 4, 3, 4};
+    for (int t = 0; t < 14; ++t) CHECK(tierOf(Meter::Seven223, t) == seven223[t]);
+    CHECK(tierOf(Meter::Seven322, 6) == 1 && tierOf(Meter::Seven322, 10) == 2);
+    CHECK(tierOf(Meter::Seven232, 4) == 1 && tierOf(Meter::Seven232, 10) == 2);
+    CHECK(tierOf(Meter::Nine333, 6) == 1 && tierOf(Meter::Nine333, 12) == 2 && tierOf(Meter::Nine333, 2) == 3);
+}
+
+GridParams gridAll() {
+    GridParams p;                      // sixteenths at 120 BPM: 6000 samples, a bar of 96000
+    for (GridTier& t : p.tiers) t.probability = kOne16;
+    p.settings.voices = 32;
+    p.lengthBeats     = kBeat / 16;    // 1500 samples
+    return p;
+}
+
+void testGridPlaying() {
+    const std::vector<InputEvent> chord = {input(0, on2(64, 0x8000)), input(0, on2(60, 0x8000)), input(0, on2(67, 0x8000))};
+
+    // Every slot plays; the bar's downbeat takes the lowest note, each bar.
+    GridParams p = gridAll();
+    auto on      = ons(runGrid(p, chord, 2 * 96000, false).events);
+    CHECK(on.size() == 32);
+    for (std::size_t i = 0; i < on.size(); ++i) CHECK(on[i].time == static_cast<std::int64_t>(i) * 6000);
+    CHECK(on.size() == 32 && on[0].key == 60 && on[16].key == 60);
+    // Levels by tier: the bar 1, a half 0.85, a quarter 0.75, an eighth 0.65, a sixteenth 0.55.
+    CHECK(on.size() == 32 && on[0].velocity == 0x8000 && on[8].velocity == 27853 && on[4].velocity == 0x6000 &&
+          on[2].velocity == 21299 && on[1].velocity == 18023);
+
+    // The defaults: the eighths three times in four, the sixteenths half the time, over many bars.
+    GridParams d;
+    d.settings.voices = 32;
+    d.lengthBeats     = kBeat / 16;
+    on                = ons(runGrid(d, chord, 100 * 96000, false).events);
+    int eighths = 0, sixteenths = 0, others = 0;
+    for (const NoteEvent& e : on) {
+        const int tier = tierOf(Meter::Straight, e.time / 6000);
+        if (tier == 3) ++eighths;
+        else if (tier == 4) ++sixteenths;
+        else ++others;
+    }
+    CHECK(others == 400);                                     // 4 slots a bar always play
+    CHECK(eighths > 4 * 100 * 70 / 100 && eighths < 4 * 100 * 80 / 100);
+    CHECK(sixteenths > 8 * 100 * 45 / 100 && sixteenths < 8 * 100 * 55 / 100);
+
+    // Offset by tier: the quarters an octave up.
+    p                    = gridAll();
+    p.tiers[2].offset    = 12 * 512;
+    p.tiers[2].pick      = TierPick::Lowest;
+    on                   = ons(runGrid(p, chord, 96000, true).events);
+    CHECK(on.size() == 16 && on[4].key == 72 && on[12].key == 72);
+
+    // A tier at probability 0 is silent.
+    p                     = gridAll();
+    p.tiers[4].probability = 0;
+    on                    = ons(runGrid(p, chord, 96000, true).events);
+    CHECK(on.size() == 8);
+    for (const NoteEvent& e : on) CHECK((e.time / 6000) % 2 == 0);
+}
+
+void testGridDensityAndChaos() {
+    const std::vector<InputEvent> chord = {input(0, on2(60, 0x8000)), input(0, on2(64, 0x8000)), input(0, on2(67, 0x8000))};
+    // Density 2, no smear: two notes at each slot's start, a dyad (Next picks two members).
+    GridParams p = gridAll();
+    p.density    = 2 * kOne16;
+    auto on      = ons(runGrid(p, chord, 96000, true).events);
+    CHECK(on.size() == 32);
+    for (std::size_t i = 0; i + 1 < on.size(); i += 2) CHECK(on[i].time == on[i + 1].time && on[i].key != on[i + 1].key);
+
+    // Smear only spreads a tier with Chaos; then each note stays in its slot.
+    p.smear          = kOne16;
+    on               = ons(runGrid(p, chord, 96000, true).events);
+    for (const NoteEvent& e : on) CHECK(e.time % 6000 == 0);
+    for (GridTier& t : p.tiers) t.chaos = kOne16;
+    on               = ons(runGrid(p, chord, 96000, true).events);
+    int off          = 0;
+    for (const NoteEvent& e : on) off += e.time % 6000 != 0;
+    CHECK(on.size() == 32 && off > 10);
+
+    // Scatter, likewise: none at Chaos 0; at Chaos 1, pitches move (12-EDO keys stay keys with Quantize EDO).
+    GridParams q = gridAll();
+    q.scatter    = 7 * 512;
+    on           = ons(runGrid(q, chord, 96000, true).events);
+    for (const NoteEvent& e : on) CHECK(e.key == 60 || e.key == 64 || e.key == 67);
+    for (GridTier& t : q.tiers) t.chaos = kOne16;
+    q.pitch.quantize = Quantize::Edo;
+    on               = ons(runGrid(q, chord, 2 * 96000, true).events);
+    int moved        = 0;
+    for (const NoteEvent& e : on) {
+        moved += !(e.key == 60 || e.key == 64 || e.key == 67);
+        CHECK(e.pitch79 % 512 == 0);
+    }
+    CHECK(moved > 5);
+
+    // A fractional Density hits its mean: 1.5 over 100 bars of 16.
+    GridParams h = gridAll();
+    h.density    = kOne16 + kOne16 / 2;
+    h.smear      = kOne16;
+    for (GridTier& t : h.tiers) t.chaos = kOne16;
+    const auto n = ons(runGrid(h, chord, 100 * 96000, false).events).size();
+    CHECK(n > 1600 * 145 / 100 && n < 1600 * 155 / 100);
+}
+
+void testGridMeterAndLock() {
+    // 7 as 2 + 2 + 3: the bar's downbeat (lowest) every 14 slots.
+    const std::vector<InputEvent> chord = {input(0, on2(60, 0x8000)), input(0, on2(64, 0x8000)), input(0, on2(67, 0x8000))};
+    GridParams p = gridAll();
+    p.meter      = Meter::Seven223;
+    for (std::size_t t = 1; t < kTiers; ++t) p.tiers[t].pick = TierPick::Highest;
+    auto on = ons(runGrid(p, chord, 28 * 6000, true).events);
+    CHECK(on.size() == 28);
+    for (std::size_t i = 0; i < on.size(); ++i) CHECK(on[i].key == (i % 14 == 0 ? 60 : 67));
+
+    // Any block sizes, the same notes; and with a host's timeline, locked to its beats.
+    GridParams b = gridAll();
+    b.density    = kOne16 + kOne16 / 3;
+    b.smear      = kOne16 / 2;
+    for (GridTier& t : b.tiers) {
+        t.chaos       = kOne16 / 2;
+        t.probability = 45000;
+    }
+    b.velSpread = kOne16 / 4;
+    b.lenSpread = kOne16 / 4;
+    const auto one = runGrid(b, chord, 480000, true);
+    CHECK(sameEvents(one.events, runGrid(b, chord, 480000, false, nullptr, 777).events));
+    CHECK(sameEvents(one.events, runGrid(b, chord, 480000, false, nullptr, 4242).events));
+    checkPlayable(one.events, 32, false);
+    const TransportFn hostAt = [](std::int64_t s, Transport& t) { return host(s, t, 0); };
+    CHECK(sameEvents(one.events, runGrid(b, chord, 480000, false, hostAt).events));
+
+    // Starting mid-bar on the host's timeline: the downbeat is where the host's bar is.
+    const TransportFn late = [](std::int64_t s, Transport& t) {
+        host(s, t, 0);
+        t.beats += 2 * kBeat;   // the host is two beats in at our sample 0
+        return &t;
+    };
+    on = ons(runGrid(gridAll(), chord, 96000, true, late).events);
+    CHECK(on.size() == 16 && on[8].key == 60 && on[8].time == 48000);
+}
+
 } // namespace
 
 int main() {
@@ -1786,6 +1965,10 @@ int main() {
     testChordsMicrotonal();
     testChordsPlaying();
     testChordsScaleChannel();
+    testGridTiers();
+    testGridPlaying();
+    testGridDensityAndChaos();
+    testGridMeterAndLock();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

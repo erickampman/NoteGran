@@ -6,9 +6,8 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phases 1 and 2 done (Cloud heard in StageHand with KeyboardEDO); phase 3,
-NoteGran Chords, is built, passes its tests and `clap-validator`, and is heard working in StageHand
-with KeyboardEDO.
+**Status (2026-10-21):** phases 1–3 done and heard in StageHand with KeyboardEDO (Cloud, Chords).
+Phase 4, NoteGran Grid, is built and passes its tests and `clap-validator`, not yet heard.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -350,6 +349,23 @@ The beat-grid assigner, after ClockGran: picks on a grid whose positions have ti
   always take the root and an off-beat a random member.
 - `Density` (1 to 4): sub-picks within a position, spread by `Smear`, as ClockGran's.
 - Positions come from the beat timeline, so a Grid on one row and a sequence on another stay locked.
+- **As built (2026-10-21):** always Beats (its own count with no timeline). ClockGran's meter table
+  and tiers: ticks counted 2 to an eighth; Straight is 16 ticks (tier 1 the bar's downbeat, 2 the
+  half, 3 the quarters, 4 the eighths, 5 the sixteenths); a grouped meter's tiers are its groups'
+  downbeats (1 the bar's), then the other beats, then the off-beats, so a 2-group meter leaves tier 5
+  unused. A slot's place in the cycle is its number mod the cycle, from the timeline's beat 0 (not
+  the host's bar start: a bar of 4/4 at 4 per beat lines up; others line up from beat 0).
+- Per slot: its tier's Probability (Chance draw 0), then Density notes (1–4; a fraction by Chance
+  draw 1), each at a uniform place up to Smear × the tier's Chaos into the slot (Timing draw j).
+  Each note: the tier's Pick (Lowest | Highest | Next, which is Cloud's Up | Random, unweighted), its
+  Offset as a transpose, Scatter × its Chaos (triangular, as ClockGran's: Chaos scales both), the
+  tier's Level times the member's velocity. Global: Rate, Meter, Density, Smear, Scatter (default
+  ±12 st), Length (beats), the spreads, Transpose, Quantize / EDO / Root, and the assigner settings.
+  Defaults: every tier Chaos 0; Probability 1, 1, 1, 0.75, 0.5; Level 1, 0.85, 0.75, 0.65, 0.55;
+  Pick Lowest, Next, Next, Next, Random. 45 parameters (tier n's five as "Tier n …").
+- **What Cloud and Grid share is `Assigner`** (`src/core/Assigner`): the set, clock, owned notes,
+  draws, the block's order (inputs before grains at a sample), triggers, Dry, picks and key choice.
+  Each says only when its grains are and what each plays. Burst will be the third.
 
 ## NoteGran Burst (phase 5)
 
@@ -500,7 +516,8 @@ position, turning each `NoteEvent` into its own events.
    tested in the core and through the .clap, `clap-validator` clean. Heard (2026-10-21): StageHand,
    KeyboardEDO → Chords → a synth, working. Still to hear: C lydian dominant in
    19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud.
-4. **NoteGran Grid.**
+4. **NoteGran Grid.** Built 2026-10-21 (`src/core/Grid`), tested in the core and through the .clap,
+   `clap-validator` clean. To hear: a chord held into Grid in StageHand, Straight and a 7.
 5. **NoteGran Burst.**
 6. **NoteGran Buffer.** Note mode first, then Fragment.
 7. **AUv2 / VST3 via clap-wrapper**, MIDI 1.0 (rounded) only, as Retune's M4. Retune's table of what

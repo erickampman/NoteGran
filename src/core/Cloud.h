@@ -1,9 +1,9 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
+#include "core/Assigner.h"
 #include "core/Clock.h"
 #include "core/NoteEvents.h"
 #include "core/NoteSet.h"
@@ -14,16 +14,9 @@
 
 // NoteGran Cloud's logic (PLAN.md, "NoteGran Cloud"), with no CLAP: grains whose pitches are picked
 // from the set, at a rate on the clock. The plugin layer (phase 2) and a host's generator both drive
-// it the same way: inputs and a transport in, NoteEvents out, all in absolute sample time.
+// it the same way: inputs and a transport in, NoteEvents out, all in absolute sample time. What it
+// shares with the other assigners is Assigner's.
 namespace notegran {
-
-enum class Pick : std::uint8_t {
-    Random,    // weighted by velocity, by `weight`
-    Up,        // by pitch
-    Down,
-    UpDown,
-    Played,    // by arrival
-};
 
 struct CloudParams {
     Clock::Mode  sync         = Clock::Mode::Free;
@@ -33,7 +26,7 @@ struct CloudParams {
     double       lengthMs     = 100.0;         // Free
     std::int64_t lengthBeats  = kBeat / 4;     // Beats, in kBeat units
     std::int32_t onsetRandom  = 0;             // Q16, 0 .. 1: grid .. Poisson dust
-    Pick         pick         = Pick::Random;
+    Pick         pick         = Pick::Random;      // Random .. Played
     std::int32_t weight       = 0;             // Q16, 0 .. 1: Random's weighting by velocity
     PitchParams  pitch;
     std::int32_t level        = 65536;         // Q16, 0 .. 2
@@ -49,57 +42,19 @@ struct CloudParams {
     std::uint64_t seed        = 1;             // the plugin layer picks one when Seed is 0
 };
 
-class CloudCore {
+class CloudCore : public Assigner {
 public:
-    static constexpr std::size_t kMaxGrainsPerBlock = 1024;
-
-    void setSampleRate(double sampleRate) noexcept;
     // Applied from the next block. The seed only when it changes.
     void setParams(const CloudParams& params) noexcept;
 
-    // One block [start, start + frames): reads `inputs` (sorted by time, all in the block), writes
-    // note starts and ends to `out`, sets each input's `pass`. Ends due in the block are sent.
-    void process(std::int64_t start, std::int64_t frames, const Transport* transport, InputEvent* inputs,
-                 std::size_t inputCount, NoteOut& out) noexcept;
-
-    // Ends every note at `time` and clears the set: reset(), deactivating, a bypass.
-    void reset(std::int64_t time, NoteOut& out) noexcept;
-
-    // Notes sounding, or a set to play from: the plugin keeps being processed (PLAN.md).
-    bool busy() const noexcept { return !owned_.empty() || !set_.empty(); }
-
-    const NoteSet&    set() const noexcept { return set_; }
-    const OwnedNotes& owned() const noexcept { return owned_; }
-
 private:
-    struct Grain {
-        std::int64_t  time;
-        std::int64_t  index;     // for the random draws
-        std::uint16_t trigger;   // trigger velocity, or 0xFFFF
-    };
-
-    void        collectGrains(std::size_t& count) noexcept;
-    void        play(const Grain& g, NoteOut& out) noexcept;
-    std::size_t pick(std::int64_t index) noexcept;   // a member's index in set_, or size()
-    std::size_t sortedMembers(bool byArrival) noexcept;
-    Grid        grid() const noexcept;
+    void         reapply() noexcept override { setParams(params_); }
+    void         collectGrains(std::size_t& count) noexcept override;
+    void         play(const Grain& g, NoteOut& out) noexcept override;
+    Grid         grid() const noexcept;
     std::int64_t baseLength() const noexcept;
 
     CloudParams params_;
-    Clock       clock_;
-    NoteSet     set_;
-    OwnedNotes  owned_;
-    Random      random_;
-
-    std::array<Grain, kMaxGrainsPerBlock>             grains_{};
-    std::array<std::uint16_t, NoteSet::kCapacity>     order_{};   // member indices, sorted
-
-    // The ordered picks' place: the last member picked, by (pitch, arrival), and Up-down's direction.
-    bool          hasLast_  = false;
-    std::int32_t  lastPitch_ = 0;
-    std::uint64_t lastArrival_ = 0;
-    bool          goingDown_ = false;
-    std::int64_t  triggers_ = 0;     // trigger strikes so far: their grains' index
 };
 
 } // namespace notegran

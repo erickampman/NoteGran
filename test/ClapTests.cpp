@@ -33,6 +33,7 @@ int failures = 0;
 
 constexpr const char* kCloudId  = "com.unlikelyware.notegran.cloud";
 constexpr const char* kChordsId = "com.unlikelyware.notegran.chords";
+constexpr const char* kGridId   = "com.unlikelyware.notegran.grid";
 
 // Parameter ids (PLAN.md; plugin.cpp's ParamId).
 enum : clap_id {
@@ -291,7 +292,9 @@ std::vector<Event> run(Instance& r, Input& first, int64_t until, uint32_t frames
 // --- tests -----------------------------------------------------------------------------------
 
 void testDescriptor() {
-    CHECK(gFactory->get_plugin_count(gFactory) == 2);
+    CHECK(gFactory->get_plugin_count(gFactory) == 3);
+    const clap_plugin_descriptor_t* g = gFactory->get_plugin_descriptor(gFactory, 2);
+    CHECK(g != nullptr && std::strcmp(g->id, kGridId) == 0 && std::strcmp(g->name, "NoteGran Grid") == 0);
     const clap_plugin_descriptor_t* c = gFactory->get_plugin_descriptor(gFactory, 1);
     CHECK(c != nullptr && std::strcmp(c->id, kChordsId) == 0 && std::strcmp(c->name, "NoteGran Chords") == 0);
     const clap_plugin_descriptor_t* d = gFactory->get_plugin_descriptor(gFactory, 0);
@@ -677,6 +680,49 @@ void testChords() {
     CHECK(!cloud.state->load(cloud.plugin, &is));   // a Chords state isn't a Cloud's
 }
 
+void testGrid() {
+    Instance r(kGridId);
+    CHECK(r.ok());
+    if (!r.ok()) return;
+    CHECK(r.params->count(r.plugin) == 45);
+    clap_param_info_t info{};
+    CHECK(r.params->get_info(r.plugin, 20, &info) && std::strcmp(info.name, "Tier 1 Probability") == 0);
+    CHECK(r.params->get_info(r.plugin, 44, &info) && std::strcmp(info.name, "Tier 5 Pick") == 0 && info.default_value == 3);
+    char text[64];
+    CHECK(r.params->value_to_text(r.plugin, 24, 0, text, sizeof(text)) && std::strcmp(text, "Lowest") == 0);
+    CHECK(r.params->value_to_text(r.plugin, 1, 3, text, sizeof(text)) && std::strcmp(text, "7 (2+2+3)") == 0);
+    CHECK(r.params->value_to_text(r.plugin, 19, 0, text, sizeof(text)) && std::strcmp(text, "New each start") == 0);
+
+    // Every tier always plays: sixteenths at 120 BPM, each bar's downbeat the lowest note.
+    for (clap_id t = 0; t < 5; ++t) r.set(20 + t * 5, 1.0);
+    r.set(12, 32);
+    clap_event_transport_t tr{};
+    tr.header = {sizeof(tr), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0};
+    tr.flags  = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_IS_PLAYING;
+    tr.tempo  = 120.0;
+    Input in;
+    in.midi1(0, 0x90, 64, 100);
+    in.midi1(0, 0x90, 60, 100);
+    std::vector<Event> all;
+    for (int b = 0; b < 375; ++b) {   // 2 bars of 96000, in blocks of 512
+        tr.song_pos_beats = (int64_t(b) * 512 << 31) / 24000;
+        Input none;
+        auto out = r.process(b == 0 ? in : none, 512, &tr);
+        all.insert(all.end(), out.begin(), out.end());
+    }
+    std::vector<Event> ons;
+    for (const Event& e : all)
+        if (isMidi1NoteOn(e)) ons.push_back(e);
+    CHECK(ons.size() == 32);
+    CHECK(ons.size() == 32 && ons[0].time == 0 && ons[0].bytes[1] == 60 && ons[16].bytes[1] == 60);   // (times: below, ±1 for the host's rounding)
+    for (size_t i = 0; i < ons.size(); ++i) CHECK(std::llabs(ons[i].time - int64_t(i) * 6000) <= 1);
+
+    Sink                 sink;
+    const clap_ostream_t os = {&sink, Sink::write};
+    CHECK(r.state->save(r.plugin, &os));
+    CHECK(sink.text.rfind("NoteGran Grid 1\n", 0) == 0 && sink.text.find("t3_pick 2\n") != std::string::npos);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -700,6 +746,7 @@ int main(int argc, char** argv) {
     testResetAndSleep();
     testState();
     testChords();
+    testGrid();
     gEntry->deinit();
     if (failures != 0) {
         std::fprintf(stderr, "NoteGran CLAP: %d check(s) failed\n", failures);
