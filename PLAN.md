@@ -6,8 +6,8 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phases 1–3 done and heard in StageHand with KeyboardEDO (Cloud, Chords).
-Phase 4, NoteGran Grid, is built and passes its tests and `clap-validator`, not yet heard.
+**Status (2026-10-21):** phases 1–4 done: Cloud, Chords and Grid are built, pass their tests and
+`clap-validator`, and are heard working in StageHand with KeyboardEDO. Next: phase 5, Burst.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -517,7 +517,7 @@ position, turning each `NoteEvent` into its own events.
    KeyboardEDO → Chords → a synth, working. Still to hear: C lydian dominant in
    19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud.
 4. **NoteGran Grid.** Built 2026-10-21 (`src/core/Grid`), tested in the core and through the .clap,
-   `clap-validator` clean. To hear: a chord held into Grid in StageHand, Straight and a 7.
+   `clap-validator` clean. Heard (2026-10-21): StageHand, KeyboardEDO → Grid → a synth, working.
 5. **NoteGran Burst.**
 6. **NoteGran Buffer.** Note mode first, then Fragment.
 7. **AUv2 / VST3 via clap-wrapper**, MIDI 1.0 (rounded) only, as Retune's M4. Retune's table of what
