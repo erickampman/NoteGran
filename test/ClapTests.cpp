@@ -781,6 +781,38 @@ void testBurst() {
     CHECK(sink.text.rfind("NoteGran Burst 1\n", 0) == 0 && sink.text.find("release 2\n") != std::string::npos);
 }
 
+void testEditor() {
+    // Cloud has its editor (embedded only); the others keep the host's generic one for now.
+    Instance r(kCloudId);
+    CHECK(r.ok());
+    if (!r.ok()) return;
+    const auto* gui = static_cast<const clap_plugin_gui_t*>(r.plugin->get_extension(r.plugin, CLAP_EXT_GUI));
+    CHECK(gui != nullptr && r.plugin->get_extension(r.plugin, CLAP_EXT_TIMER_SUPPORT) != nullptr);
+    if (gui == nullptr) return;
+#ifdef __APPLE__
+    const char* api = CLAP_WINDOW_API_COCOA;
+#else
+    const char* api = CLAP_WINDOW_API_X11;
+#endif
+    const char* preferred = nullptr;
+    bool        floating  = true;
+    CHECK(gui->get_preferred_api(r.plugin, &preferred, &floating) && std::strcmp(preferred, api) == 0 && !floating);
+    CHECK(!gui->is_api_supported(r.plugin, api, true));
+    // Made and sized with no window yet (the host's parent comes later), then destroyed.
+    CHECK(gui->create(r.plugin, api, false));
+    uint32_t w = 0, h = 0;
+    CHECK(gui->get_size(r.plugin, &w, &h) && w == 900 && h == 560);
+    uint32_t aw = 1000, ah = 10;
+    CHECK(gui->adjust_size(r.plugin, &aw, &ah) && aw == 1000 && ah == 622);
+    CHECK(gui->set_size(r.plugin, 1000, 622) && gui->get_size(r.plugin, &w, &h) && w == 1000 && h == 622);
+    gui->destroy(r.plugin);
+
+    for (const char* id : {kChordsId, kGridId, kBurstId}) {
+        Instance o(id);
+        CHECK(o.ok() && o.plugin->get_extension(o.plugin, CLAP_EXT_GUI) == nullptr);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -806,6 +838,7 @@ int main(int argc, char** argv) {
     testChords();
     testGrid();
     testBurst();
+    testEditor();
     gEntry->deinit();
     if (failures != 0) {
         std::fprintf(stderr, "NoteGran CLAP: %d check(s) failed\n", failures);

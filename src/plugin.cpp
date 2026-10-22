@@ -14,6 +14,9 @@
 // - Time is the plugin's own running sample count, so the core sees an absolute clock.
 // - reset() can't send events, so the notes still sounding then (or at deactivate) are ended at
 //   the start of the next process().
+// - The editor (src/UI/NoteGranUI.cpp) reaches the plugin only through plugin_gui.h: its edits
+//   come through a ring and are applied, and told to the host, at the next process() or flush;
+//   what's playing goes back through a seqlocked snapshot written at the end of each process().
 
 #include <clap/clap.h>
 
@@ -33,6 +36,7 @@
 #include "core/Cloud.h"
 #include "core/Grid.h"
 #include "core/Shape.h"
+#include "plugin_gui.h"
 #include "uw/ump/Ump.h"
 
 #ifndef NOTEGRAN_VERSION_STRING
@@ -290,6 +294,48 @@ double clampParam(const PluginDef& def, std::uint32_t id, double value) {
 constexpr std::size_t kMaxInputs  = 1024;   // per sub-block; more split the block
 constexpr std::size_t kMaxOutputs = 4096;   // note events per process call
 
+// Editor edits (main thread) → the audio thread, as StruckSynth's: process() and flush() are never
+// concurrent, so one consumer.
+struct GuiEdit {
+    enum Kind : std::uint8_t { Begin, Value, End } kind;
+    std::uint32_t index;
+    double        value;
+};
+
+class GuiEditRing {
+public:
+    bool push(const GuiEdit& edit) {
+        const std::uint32_t t    = tail.load(std::memory_order_relaxed);
+        const std::uint32_t next = (t + 1) & (kCapacity - 1);
+        if (next == head.load(std::memory_order_acquire)) return false;   // full: dropped, never blocks
+        buffer[t] = edit;
+        tail.store(next, std::memory_order_release);
+        return true;
+    }
+    bool pop(GuiEdit& out) {
+        const std::uint32_t h = head.load(std::memory_order_relaxed);
+        if (h == tail.load(std::memory_order_acquire)) return false;
+        out = buffer[h];
+        head.store((h + 1) & (kCapacity - 1), std::memory_order_release);
+        return true;
+    }
+
+private:
+    static constexpr std::uint32_t kCapacity = 512;   // a power of two
+    GuiEdit                        buffer[kCapacity]{};
+    std::atomic<std::uint32_t>     head{0};
+    std::atomic<std::uint32_t>     tail{0};
+};
+
+// What's playing, for the editor (ng_live_t, packed as pitch << 16 | velocity): written whole at
+// the end of each process() under a sequence count, read by the editor's timer.
+struct LiveShared {
+    static constexpr std::size_t kMembers = NG_LIVE_MEMBERS, kNotes = NG_LIVE_NOTES;
+    static constexpr std::size_t kWords   = 2 + kMembers + kNotes;   // counts, members, notes
+    std::atomic<std::uint32_t> seq{0};
+    std::atomic<std::uint32_t> words[kWords]{};
+};
+
 struct Pending {
     std::int64_t               time;    // absolute
     const clap_event_header_t* event;   // passes through unchanged
@@ -313,6 +359,13 @@ struct Plugin {
     std::int64_t  now       = 0;       // absolute sample count at the block's start
     bool          endAll    = false;   // reset / reactivation: end what's sounding first
     std::string   scratch;
+
+    // The editor (plugin_gui.h).
+    void*                    gui = nullptr;   // the editor's own state, held for it
+    GuiEditRing              guiEdits;
+    LiveShared               live;
+    std::uint32_t            notesStarted = 0;   // audio thread
+    std::array<std::uint32_t, NG_LIVE_NOTES> recentNotes{};
 
     // Per process call, fixed size.
     std::array<InputEvent, kMaxInputs>                   inputs{};
@@ -460,6 +513,68 @@ void applyParams(Plugin* p) {
     if (p->grid) p->grid->setParams(gridParams(p));
     if (p->burst) p->burst->setParams(burstParams(p));
     if (p->chords) p->chords->setParams(chordsParams(p));
+}
+
+// The editor's edits, applied and told to the host (as param and gesture events at time 0, before
+// anything else this block sends). True if any value changed.
+bool applyGuiEdits(Plugin* p, const clap_output_events_t* out) {
+    bool    changed = false;
+    GuiEdit edit;
+    while (p->guiEdits.pop(edit)) {
+        if (edit.index >= p->def->count) continue;
+        if (edit.kind == GuiEdit::Value) {
+            p->values[edit.index].store(clampParam(*p->def, edit.index, edit.value), std::memory_order_relaxed);
+            changed = true;
+        }
+        if (out == nullptr) continue;
+        if (edit.kind == GuiEdit::Value) {
+            clap_event_param_value_t ev{};
+            ev.header   = {sizeof(ev), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+            ev.param_id = edit.index;
+            ev.note_id  = -1;
+            ev.port_index = -1;
+            ev.channel  = -1;
+            ev.key      = -1;
+            ev.value    = value(p, edit.index);
+            out->try_push(out, &ev.header);
+        } else {
+            clap_event_param_gesture_t ev{};
+            ev.header   = {sizeof(ev), 0, CLAP_CORE_EVENT_SPACE_ID,
+                           static_cast<std::uint16_t>(edit.kind == GuiEdit::Begin ? CLAP_EVENT_PARAM_GESTURE_BEGIN
+                                                                                  : CLAP_EVENT_PARAM_GESTURE_END),
+                           0};
+            ev.param_id = edit.index;
+            out->try_push(out, &ev.header);
+        }
+    }
+    return changed;
+}
+
+// The snapshot the editor reads (ng_live_read): the set's members and the notes started lately.
+void publishLive(Plugin* p, const NoteOut& notes) {
+    for (std::size_t i = 0; i < notes.size(); ++i) {
+        const NoteEvent& e = notes[i];
+        if (!e.on) continue;
+        p->recentNotes[p->notesStarted % NG_LIVE_NOTES] = std::uint32_t{e.pitch79} << 16 | e.velocity;
+        ++p->notesStarted;
+    }
+    LiveShared&         l = p->live;
+    const std::uint32_t s = l.seq.load(std::memory_order_relaxed);
+    l.seq.store(s + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    std::uint32_t members = 0;
+    if (p->assigner) {
+        const NoteSet& set = p->assigner->set();
+        for (std::size_t i = 0; i < set.size() && members < LiveShared::kMembers; ++i, ++members) {
+            const auto pitch = static_cast<std::uint32_t>(std::clamp<std::int32_t>(set[i].pitch, 0, 0xFFFF));
+            l.words[2 + members].store(pitch << 16 | set[i].velocity, std::memory_order_relaxed);
+        }
+    }
+    l.words[0].store(members, std::memory_order_relaxed);
+    l.words[1].store(p->notesStarted, std::memory_order_relaxed);
+    for (std::size_t i = 0; i < LiveShared::kNotes; ++i)
+        l.words[2 + LiveShared::kMembers + i].store(p->recentNotes[i], std::memory_order_relaxed);
+    l.seq.store(s + 2, std::memory_order_release);
 }
 
 void storeParam(Plugin* p, const clap_event_param_value_t* ev) {
@@ -635,7 +750,8 @@ void plug_reset(const clap_plugin_t* plugin) { self(plugin)->endAll = true; }
 
 clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process_t* process) {
     Plugin* p = self(plugin);
-    if (p->valuesChangedByState.exchange(false, std::memory_order_acquire)) applyParams(p);
+    const bool fromGui = applyGuiEdits(p, process->out_events);
+    if (p->valuesChangedByState.exchange(false, std::memory_order_acquire) || fromGui) applyParams(p);
 
     const std::int64_t blockStart = p->now;
     const std::int64_t frames     = process->frames_count;
@@ -729,6 +845,7 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
             pushNote(notes[b++], offset, process->out_events);
         }
     }
+    publishLive(p, notes);
     const bool busy = (p->assigner && p->assigner->busy()) || (p->chords && p->chords->busy());
     return busy ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
 }
@@ -844,9 +961,10 @@ bool params_text_to_value(const clap_plugin_t* plugin, clap_id id, const char* t
     return true;
 }
 
-void params_flush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t*) {
+void params_flush(const clap_plugin_t* plugin, const clap_input_events_t* in, const clap_output_events_t* out) {
     // Never concurrent with process, so the core can be updated here too.
     Plugin*             p     = self(plugin);
+    applyGuiEdits(p, out);
     const std::uint32_t count = in != nullptr ? in->size(in) : 0;
     for (std::uint32_t i = 0; i < count; ++i) {
         const clap_event_header_t* h = in->get(in, i);
@@ -915,11 +1033,23 @@ bool state_load(const clap_plugin_t* plugin, const clap_istream_t* stream) {
 
 const clap_plugin_state_t kStateExt = {state_save, state_load};
 
-const void* plug_get_extension(const clap_plugin_t*, const char* id) {
+// ---------------------------------------------------------------------------------------------
+// timer-support: the editor's (src/UI/NoteGranUI.cpp)
+// ---------------------------------------------------------------------------------------------
+
+void plug_on_timer(const clap_plugin_t* plugin, clap_id timerId) { ng_gui_on_timer(plugin, timerId); }
+
+const clap_plugin_timer_support_t kTimerExt = {plug_on_timer};
+
+const void* plug_get_extension(const clap_plugin_t* plugin, const char* id) {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &kAudioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &kNotePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &kParamsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &kStateExt;
+    // Only Cloud has its editor so far; the others keep the host's generic one until theirs come.
+    const bool editor = self(plugin)->def->which == Which::Cloud;
+    if (editor && std::strcmp(id, CLAP_EXT_GUI) == 0) return ng_gui_extension();
+    if (editor && std::strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) return &kTimerExt;
     return nullptr;
 }
 
@@ -1058,6 +1188,93 @@ const void* entry_get_factory(const char* factoryId) {
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------------------------
+// The seam the editor calls (plugin_gui.h)
+// ---------------------------------------------------------------------------------------------
+
+extern "C" {
+
+const clap_host_t* ng_plugin_host(const clap_plugin_t* plugin) { return self(plugin)->host; }
+
+int ng_plugin_kind(const clap_plugin_t* plugin) {
+    switch (self(plugin)->def->which) {
+    case Which::Cloud: return NG_CLOUD;
+    case Which::Chords: return NG_CHORDS;
+    case Which::Grid: return NG_GRID;
+    case Which::Burst: return NG_BURST;
+    }
+    return NG_CLOUD;
+}
+
+void  ng_plugin_set_gui(const clap_plugin_t* plugin, void* gui) { self(plugin)->gui = gui; }
+void* ng_plugin_get_gui(const clap_plugin_t* plugin) { return self(plugin)->gui; }
+
+uint32_t ng_param_count(const clap_plugin_t* plugin) { return self(plugin)->def->count; }
+
+bool ng_param_info(const clap_plugin_t* plugin, uint32_t index, ng_param_info_t* info) {
+    const PluginDef& def = *self(plugin)->def;
+    if (index >= def.count) return false;
+    const ParamSpec& s = def.params[index];
+    info->name   = s.name;
+    info->min    = s.min;
+    info->max    = s.max;
+    info->def    = s.def;
+    info->kind   = s.kind == Kind::Menu ? NG_PARAM_MENU : s.kind == Kind::Stepped ? NG_PARAM_STEPPED : NG_PARAM_NUMBER;
+    info->labels = s.labels;
+    return true;
+}
+
+double ng_param_value(const clap_plugin_t* plugin, uint32_t index) {
+    return index < self(plugin)->def->count ? value(self(plugin), index) : 0.0;
+}
+
+void ng_param_text(const clap_plugin_t* plugin, uint32_t index, double v, char* out, uint32_t size) {
+    if (size == 0) return;
+    out[0] = 0;
+    params_value_to_text(plugin, index, v, out, size);
+}
+
+void ng_param_begin_gesture(const clap_plugin_t* plugin, uint32_t index) {
+    self(plugin)->guiEdits.push({GuiEdit::Begin, index, 0.0});
+}
+
+void ng_param_set_from_gui(const clap_plugin_t* plugin, uint32_t index, double v) {
+    Plugin* p = self(plugin);
+    if (index >= p->def->count) return;
+    // Stored at once, so the editor's next read shows it; applied at the next process() or flush.
+    p->values[index].store(clampParam(*p->def, index, v), std::memory_order_relaxed);
+    p->guiEdits.push({GuiEdit::Value, index, v});
+    const auto* hostParams = static_cast<const clap_host_params_t*>(p->host->get_extension(p->host, CLAP_EXT_PARAMS));
+    if (hostParams != nullptr && hostParams->request_flush != nullptr) hostParams->request_flush(p->host);
+}
+
+void ng_param_end_gesture(const clap_plugin_t* plugin, uint32_t index) {
+    self(plugin)->guiEdits.push({GuiEdit::End, index, 0.0});
+}
+
+bool ng_live_read(const clap_plugin_t* plugin, ng_live_t* out) {
+    LiveShared&         l = self(plugin)->live;
+    const std::uint32_t s = l.seq.load(std::memory_order_acquire);
+    if (s & 1) return false;
+    std::uint32_t w[LiveShared::kWords];
+    for (std::size_t i = 0; i < LiveShared::kWords; ++i) w[i] = l.words[i].load(std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (l.seq.load(std::memory_order_relaxed) != s) return false;
+    out->memberCount  = std::min<std::uint32_t>(w[0], NG_LIVE_MEMBERS);
+    out->notesStarted = w[1];
+    for (std::size_t i = 0; i < NG_LIVE_MEMBERS; ++i) {
+        out->memberPitch[i]    = static_cast<std::uint16_t>(w[2 + i] >> 16);
+        out->memberVelocity[i] = static_cast<std::uint16_t>(w[2 + i]);
+    }
+    for (std::size_t i = 0; i < NG_LIVE_NOTES; ++i) {
+        out->notePitch[i]    = static_cast<std::uint16_t>(w[2 + NG_LIVE_MEMBERS + i] >> 16);
+        out->noteVelocity[i] = static_cast<std::uint16_t>(w[2 + NG_LIVE_MEMBERS + i]);
+    }
+    return true;
+}
+
+} // extern "C"
 
 extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
     .clap_version = CLAP_VERSION_INIT,

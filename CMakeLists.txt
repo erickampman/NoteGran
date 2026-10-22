@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(NoteGran VERSION 0.1.0 LANGUAGES CXX)
+# C for DPF's pugl and NanoVG sources.
+project(NoteGran VERSION 0.1.0 LANGUAGES C CXX)
+if(APPLE)
+    enable_language(OBJCXX)   # DPF's DistrhoUI_macOS.mm and our BackingScale_mac.mm
+endif()
 
 # The core will be linked into the .clap, a shared module (phase 2), so it must be
 # position-independent.
@@ -27,14 +31,54 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(notegran_core PRIVATE -Wall -Wextra -Wconversion)
 endif()
 
+# --- DPF, only for the editors (src/UI) -------------------------------------------------------
+# UIExporter + NanoVG + pugl, as StruckSynth uses it: the CLAP entry point stays ours. dgl-opengl
+# is what dpf_add_plugin() would make; SHARED_RESOURCES embeds DGL's DejaVu Sans.
+add_subdirectory(external/dpf)
+dpf__add_dgl_opengl(TRUE FALSE FALSE)
+target_compile_options(dgl-opengl PRIVATE -w)   # vendored: its warnings aren't ours
+
+# resources/* compiled in as bytes with DPF's res2c.py (the logo), read with NanoVG at run time.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(NOTEGRAN_RESOURCES_HPP "${CMAKE_BINARY_DIR}/generated/EmbeddedResources.hpp")
+set(NOTEGRAN_RESOURCES_CPP "${CMAKE_BINARY_DIR}/generated/EmbeddedResources.cpp")
+file(GLOB NOTEGRAN_RESOURCE_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/resources/*.png")
+add_custom_command(
+    OUTPUT "${NOTEGRAN_RESOURCES_HPP}" "${NOTEGRAN_RESOURCES_CPP}"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_BINARY_DIR}/generated/resources"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/generated/resources"
+    COMMAND ${CMAKE_COMMAND} -E copy ${NOTEGRAN_RESOURCE_FILES} "${CMAKE_BINARY_DIR}/generated/resources"
+    COMMAND ${Python3_EXECUTABLE} "${DPF_ROOT_DIR}/utils/res2c.py"
+            EmbeddedResources "${CMAKE_BINARY_DIR}/generated/resources" "${CMAKE_BINARY_DIR}/generated"
+    DEPENDS ${NOTEGRAN_RESOURCE_FILES} "${DPF_ROOT_DIR}/utils/res2c.py"
+    COMMENT "Embedding resources/* as compiled-in data")
+
 # --- the .clap ---------------------------------------------------------------------------------
 # Hidden visibility, so clap_entry (CLAP_EXPORT in plugin.cpp) is the only exported symbol and two
 # plugins with different uw-core pins can't bind to each other's copies.
-add_library(NoteGran MODULE src/plugin.cpp)
-target_include_directories(NoteGran PRIVATE external/clap/include)
-target_link_libraries(NoteGran PRIVATE notegran_core)
-target_compile_definitions(NoteGran PRIVATE NOTEGRAN_VERSION_STRING="${PROJECT_VERSION}")
+add_library(NoteGran MODULE src/plugin.cpp src/UI/NoteGranUI.cpp "${NOTEGRAN_RESOURCES_CPP}"
+    "${DPF_ROOT_DIR}/distrho/src/DistrhoUI.cpp" "${DPF_ROOT_DIR}/distrho/src/DistrhoUtils.cpp")
+target_include_directories(NoteGran PRIVATE external/clap/include src src/UI "${CMAKE_BINARY_DIR}/generated"
+    "${DPF_ROOT_DIR}/distrho")
+target_link_libraries(NoteGran PRIVATE notegran_core dgl-opengl)
+target_compile_definitions(NoteGran PRIVATE NOTEGRAN_VERSION_STRING="${PROJECT_VERSION}"
+    DISTRHO_PLUGIN_TARGET_CLAP DISTRHO_IS_STANDALONE=0)
+dpf__add_plugin_specific_ui_sources(NoteGran FALSE)   # macOS: DistrhoUI_macOS.mm
+if(APPLE)
+    target_sources(NoteGran PRIVATE src/UI/BackingScale_mac.mm)   # the window's live Retina scale
+endif()
+# DPF's own sources reach pugl.hpp through private headers; mute only gcc's <cstdbool> #warning.
+set_source_files_properties(src/UI/NoteGranUI.cpp "${DPF_ROOT_DIR}/distrho/src/DistrhoUI.cpp"
+    PROPERTIES COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>")
 set_target_properties(NoteGran PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+# DGL's libraries keep default visibility, so the linker is told too: clap_entry is the only export
+# (another plugin's DPF or uw-core in the same host can't bind to ours).
+if(APPLE)
+    target_link_options(NoteGran PRIVATE "LINKER:-exported_symbol,_clap_entry")
+elseif(UNIX)
+    file(WRITE "${CMAKE_BINARY_DIR}/generated/exports.map" "{ global: clap_entry; local: *; };\n")
+    target_link_options(NoteGran PRIVATE "LINKER:--version-script=${CMAKE_BINARY_DIR}/generated/exports.map")
+endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
     target_compile_options(NoteGran PRIVATE -Wall -Wextra)
 endif()

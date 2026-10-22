@@ -8,7 +8,8 @@ for the other formats.
 
 **Status (2026-10-22):** phases 1–4 done: Cloud, Chords and Grid are built, pass their tests and
 `clap-validator`, and are heard working in StageHand with KeyboardEDO. Phase 5, Burst, is built and
-tested (2026-10-22), not yet heard. Next: hear Burst, then phase 6, Buffer.
+tested (2026-10-22), not yet heard. Editors (2026-10-22): the shared shell and Cloud's are built;
+Grid's, Burst's and Chords' next (Editors, below). Then phase 6, Buffer.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -443,6 +444,39 @@ its natural producer; Buffer hears the looper's output and captures it as it pla
 - **Windows.** The generic editors are enough at first, except for Chords (above). A view of the
   set, or of Buffer's capture with the read point, would make the assigners easier to play.
 
+## Editors (2026-10-22)
+
+Every plugin gets its own editor; the generic editors were a stopgap. Decided with the author:
+
+- **DPF for drawing only, as StruckSynth:** DGL, NanoVG and pugl (`external/dpf`, StruckSynth's pin),
+  the window built by hand with `UIExporter`; the CLAP entry point stays ours. The plugin and the
+  editor meet only at `src/plugin_gui.h`. macOS and Linux (X11), embedded windows only.
+- **The house widget kit**, copied from StruckSynth into `src/UI/` (Knob, Dropdown, Toggle, GroupBox,
+  PopupMenu, Logo), each change marked "NoteGran:": charcoal panels, stepped knobs, dimmed menus,
+  labels that shrink to fit.
+- **NoteGran's colours:** one charcoal family, an accent per plugin: Cloud steel blue, Chords
+  violet, Grid amber, Burst teal.
+- **One shell** (`src/UI/NoteGranUI.cpp`): the header (logo, "NoteGran" and the plugin's name in its
+  accent) and a layout per plugin: groups of slots, each one parameter's control or two swapped by a
+  third (Density / Rate by Sync), and settings unused just now dimmed. Controls are built from the
+  parameters' own descriptions, so ranges, menus and texts are the host's.
+- **Values are polled:** the editor reads every value on its 60 Hz timer and shows what changed, so
+  automation and a loaded state need no push. Its edits go through a ring, applied (and sent to the
+  host as gestures and values) at the next process() or flush.
+- **Live views:** process() publishes a snapshot under a sequence count (`ng_live_t`): the set's
+  members and the notes it started lately. The editor reads it on its timer.
+- **Only `clap_entry` is exported** (a linker export list), since DGL's libraries don't hide theirs.
+- **Cloud (built):** the live view (the set lit on a keyboard of equal semitones, each grain rising
+  from its exact pitch and fading), then Timing, Pick, Pitch, Dynamics and Input. 900 × 560, resizable
+  at that ratio from 0.8×. Checked in StageHand: draws, menus and knobs work, Sync swaps Density for
+  Rate, Quantize EDO undims EDO and Root. Not yet seen with notes playing.
+- **Next:** Grid (ClockGran's tier table and a strip of one cycle by tier with the playhead), Burst
+  (PMU's DGL scatter editor, `dgl-ui/src/UI/ScatterEditorView.hpp`, drawing the phrase), then Chords
+  (the scale on a circle of N steps; mocked up first). Each plugin offers CLAP's gui extension only
+  once its editor exists, so the others keep the host's generic editor until then.
+- Every DGL plugin registers the same Objective-C class names (`DGL_17000604_Pugl…`) as
+  StruckSynth's and StageHand's own, as all of the house's DGL code already does.
+
 ## Layout (mirrors Retune)
 
 ```
@@ -451,9 +485,13 @@ NoteGran/
   external/clap          submodule
   external/uw-core       submodule, UMP-only build (UW_CORE_UMP_ONLY): uw::ump
   external/clap-wrapper  submodule (phase 7)
+  external/dpf           submodule, StruckSynth's pin: the editors' drawing (DGL, NanoVG, pugl)
   src/core/              pure C++, no CLAP: clock, the set, owned-note table, pitch, scales, random,
                          and each plugin's logic
   src/plugin.cpp         clap_entry, the factory (one descriptor per plugin), ports, params, state
+  src/plugin_gui.h       the seam between the plugin and its editors
+  src/UI/                the editors: NoteGranUI.cpp and the widget kit
+  resources/             the logo, embedded at build time
   test/                  core unit tests + a headless host test that dlopens the .clap
 ```
 
