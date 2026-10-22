@@ -7,7 +7,8 @@ hand-written raw CLAP entry point over a pure C++ core, and the vendored free-au
 for the other formats.
 
 **Status (2026-10-21):** phases 1 and 2 done (Cloud heard in StageHand with KeyboardEDO); phase 3,
-NoteGran Chords, is built and passes its tests and `clap-validator`, not yet heard.
+NoteGran Chords, is built, passes its tests and `clap-validator`, and is heard working in StageHand
+with KeyboardEDO.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -496,7 +497,8 @@ position, turning each `NoteEvent` into its own events.
    Bitwig (MIDI 1.0 there).
 3. **NoteGran Chords,** with the generic editor and the scale from a channel. Then Chords → Cloud.
    Built 2026-10-21 (`src/core/Scales`, `src/core/Chords`; the plugin table in `src/plugin.cpp`),
-   tested in the core and through the .clap, `clap-validator` clean. To hear: C lydian dominant in
+   tested in the core and through the .clap, `clap-validator` clean. Heard (2026-10-21): StageHand,
+   KeyboardEDO → Chords → a synth, working. Still to hear: C lydian dominant in
    19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud.
 4. **NoteGran Grid.**
 5. **NoteGran Burst.**
