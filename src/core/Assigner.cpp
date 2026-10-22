@@ -30,14 +30,16 @@ void Assigner::reset(std::int64_t time, NoteOut& out) noexcept {
     owned_.endAll(time, out);
     set_.clear();
     hasLast_ = false;
+    cleared();
 }
 
 void Assigner::process(std::int64_t start, std::int64_t frames, const Transport* transport, InputEvent* inputs,
                        std::size_t inputCount, NoteOut& out) noexcept {
     if (clock_.begin(start, frames, transport).stopped) reset(start, out);
 
-    std::size_t grains = 0;
-    if (triggerChannel_ == NoteSet::kNone) collectGrains(grains);
+    const bool  phrases = startsPhrases();
+    std::size_t grains  = 0;
+    if (triggerChannel_ == NoteSet::kNone || phrases) collectGrains(grains);
 
     // In time order: the inputs at a sample before the grains at it (a set change comes first).
     std::size_t next = 0;
@@ -50,14 +52,23 @@ void Assigner::process(std::int64_t start, std::int64_t frames, const Transport*
         const Heard h = set_.input(in.time, in.message, in.dialect);
         switch (h.kind) {
         case Heard::Kind::Other: in.pass = true; break;
-        case Heard::Kind::SetNote: in.pass = dry_; break;
+        case Heard::Kind::SetNote:
+            in.pass = dry_;
+            if (phrases) heard(h, in.time, next, grains);
+            break;
         case Heard::Kind::Reset:
             in.pass = true;
             owned_.endAll(in.time, out);
             hasLast_ = false;
+            cleared();
+            if (phrases) grains = next;   // the phrases' grains still to come
             break;
         case Heard::Kind::Trigger:
             in.pass = false;
+            if (phrases) {
+                heard(h, in.time, next, grains);
+                break;
+            }
             // Triggers only come with a trigger channel, which has no collected grains: appending
             // keeps the grains in time order.
             if (h.strike && grains < grains_.size()) grains_[grains++] = Grain{in.time, triggers_++, h.velocity, 0};
@@ -72,7 +83,7 @@ void Assigner::playOne(const Grain& g, NoteOut& out) noexcept {
     set_.settle(g.time);
     // Notes due by now end first, so whether a key is free doesn't depend on where blocks fall.
     if (!owned_.endUntil(g.time, out)) return;
-    if (set_.empty()) return;
+    if (set_.empty() && !startsPhrases()) return;
     play(g, out);
 }
 

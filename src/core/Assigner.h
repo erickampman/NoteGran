@@ -12,13 +12,16 @@
 
 // What every assigner shares (PLAN.md, "The model"): the set it picks from, the clock, the
 // owned-note table, the random draws, and the order things happen in a block. An assigner says
-// only when its grains are (collectGrains) and what each plays (play); Cloud and Grid are the two.
+// only when its grains are (collectGrains) and what each plays (play); Cloud, Grid and Burst are
+// the three.
 //
 // In a block: the grains the assigner collects for it, sorted by time, and the inputs, in time
 // order, with the inputs at a sample before the grains at it (a set change comes first). Before
 // each grain, the set settles and the notes due end, so whether a key is free never depends on
 // where blocks fall. With a trigger channel, each trigger note-on is a grain instead (its count is
-// its index), and the assigner collects none of its own.
+// its index), and the assigner collects none of its own. Burst instead starts phrases: it hears
+// strikes and releases (heard), its trigger note-ons are roots and not grains, and its grains play
+// whether or not the set is empty (a phrase plays out after its root is released).
 namespace notegran {
 
 enum class Pick : std::uint8_t {
@@ -61,7 +64,7 @@ public:
     void reset(std::int64_t time, NoteOut& out) noexcept;
 
     // Notes sounding, or a set to play from: the plugin keeps being processed (PLAN.md).
-    bool busy() const noexcept { return !owned_.empty() || !set_.empty(); }
+    virtual bool busy() const noexcept { return !owned_.empty() || !set_.empty(); }
 
     const NoteSet&    set() const noexcept { return set_; }
     const OwnedNotes& owned() const noexcept { return owned_; }
@@ -71,7 +74,7 @@ protected:
         std::int64_t  time;
         std::int64_t  index;     // for the random draws
         std::uint16_t trigger;   // a trigger's velocity, or 0xFFFF
-        std::uint8_t  tier;      // Grid's tier; 0 otherwise
+        std::uint8_t  tag;       // Grid's tier, Burst's phrase; 0 otherwise
     };
 
     void applySettings(const AssignerSettings& settings) noexcept;
@@ -79,8 +82,19 @@ protected:
     virtual void reapply() noexcept = 0;
     // The grains starting in this block (clock_ is set up for it), into grains_, sorted by time.
     virtual void collectGrains(std::size_t& count) noexcept = 0;
-    // One grain, the set settled and non-empty and the due notes ended.
+    // One grain, the set settled and non-empty (unless startsPhrases()) and the due notes ended.
     virtual void play(const Grain& g, NoteOut& out) noexcept = 0;
+
+    // Burst: trigger note-ons aren't grains, grains play with an empty set, and heard() is called.
+    virtual bool startsPhrases() const noexcept { return false; }
+    // An input on a set or trigger channel at `time`, after the set has read it. grains_[next,
+    // count) are the block's grains not yet played, all at `time` or later: it may add to them or
+    // remove from them, leaving them sorted.
+    virtual void heard(const Heard& h, std::int64_t time, std::size_t next, std::size_t& count) noexcept {
+        (void)h, (void)time, (void)next, (void)count;
+    }
+    // Every note was ended and the set cleared (reset(), All Notes Off, the transport stopping).
+    virtual void cleared() noexcept {}
 
     // A member of the set by `mode` (its index in set_), or set_.size() if it's empty. Random
     // draws Pick draw 0 of `index`; the ordered picks go on from the last one.

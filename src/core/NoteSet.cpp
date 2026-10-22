@@ -110,10 +110,11 @@ Heard NoteSet::input(std::int64_t time, const uw::MidiMessage& m, Dialect dialec
     const bool on  = ump::isNoteOn(m);
     const bool off = ump::isNoteOff(m);
     if (on) h.velocity = ump::velocity16(m);
+    h.strike  = on;
+    h.release = off;
 
     if (triggerChannel_ != kNone && channel == triggerChannel_) {
-        h.kind   = Heard::Kind::Trigger;
-        h.strike = on;
+        h.kind = Heard::Kind::Trigger;
         return h;
     }
     if (!isSetChannel(channel)) return h;

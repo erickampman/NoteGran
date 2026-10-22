@@ -98,7 +98,7 @@ void GridCore::collectGrains(std::size_t& count) noexcept {
 }
 
 void GridCore::play(const Grain& g, NoteOut& out) noexcept {
-    const GridTier&   t = params_.tiers[std::min<std::size_t>(g.tier, kTiers - 1)];
+    const GridTier&   t = params_.tiers[std::min<std::size_t>(g.tag, kTiers - 1)];
     const std::size_t i = pick(toPick(t.pick), 0, g.index);
     if (i >= set_.size()) return;
     const Member m = set_[i];

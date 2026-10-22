@@ -6,8 +6,9 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phases 1–4 done: Cloud, Chords and Grid are built, pass their tests and
-`clap-validator`, and are heard working in StageHand with KeyboardEDO. Next: phase 5, Burst.
+**Status (2026-10-22):** phases 1–4 done: Cloud, Chords and Grid are built, pass their tests and
+`clap-validator`, and are heard working in StageHand with KeyboardEDO. Phase 5, Burst, is built and
+tested (2026-10-22), not yet heard. Next: hear Burst, then phase 6, Buffer.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -384,6 +385,22 @@ trigger channel) starts a phrase of grains, rooted on that note.
 - Up to 16 phrases at once, sharing the `Voices` limit (so at 8 voices, overlapping phrases thin
   each other out); a 17th replaces the oldest.
 - Later, simpler shapes beside the attractor: a strum, a ratchet, a bounce (a phrase whose gaps shrink).
+- **As built (2026-10-22)** (`src/core/Burst`): the attractor is IFSGran's `computeScatter` (PMU
+  `src/Module/IFSGranModule.cpp`), 30 warm-up steps, worked in Q30 fixed point with Timing draws
+  keyed on the phrase (its strike count with `Vary` on, else 0, so every phrase has the same shape).
+  Time is normalised: the first point is on the note-on and the last at (Count − 1) / Count of
+  Duration, so Duration is one pass with its last gap and Loop repeats every Duration. Pitch is
+  (y − 0.5) × 2 × Range from the root. Positions are samples (Duration and Length in beats are turned
+  into samples at the strike and the grain), so a host loop or seek doesn't move a phrase.
+- Every set note-on starts a phrase, a quick re-strike included (the hold-over keeps the member in
+  the set but doesn't stop a phrase). With a trigger channel, only its note-ons do, rooted on the
+  newest member at the trigger's velocity, and the trigger's note-off releases it. Loop's release
+  finishes the pass it falls in. All Notes Off and the transport stopping end every phrase.
+- Grains play with an empty set (a phrase plays out after its root is gone); Quantize Set uses
+  whatever is held. Defaults: T1 (0.2, 0.4, 0.6, 25°), T2 (0.8, 0.6, 0.6, −25°), Probability 0.5,
+  Count 8, Duration 800 ms / 2 beats, Range ±12, Finish, Vary on, Length 100 ms / ¼ beat, Decay
+  0.5, Dry off. 34 parameters. Assigner gained the hooks Burst needs (`startsPhrases`, `heard`,
+  `cleared`); `Heard` now reports a set note's strike and every release.
 
 ## NoteGran Buffer (phase 6)
 
@@ -518,7 +535,9 @@ position, turning each `NoteEvent` into its own events.
    19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud.
 4. **NoteGran Grid.** Built 2026-10-21 (`src/core/Grid`), tested in the core and through the .clap,
    `clap-validator` clean. Heard (2026-10-21): StageHand, KeyboardEDO → Grid → a synth, working.
-5. **NoteGran Burst.**
+5. **NoteGran Burst.** Built 2026-10-22 (`src/core/Burst`), tested in the core and through the .clap,
+   `clap-validator` clean. Still to hear: StageHand, KeyboardEDO → Burst → a synth; Loop and Stop;
+   a trigger channel.
 6. **NoteGran Buffer.** Note mode first, then Fragment.
 7. **AUv2 / VST3 via clap-wrapper**, MIDI 1.0 (rounded) only, as Retune's M4. Retune's table of what
    the wrapper does with a note effect applies unchanged.

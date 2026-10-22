@@ -34,6 +34,7 @@ int failures = 0;
 constexpr const char* kCloudId  = "com.unlikelyware.notegran.cloud";
 constexpr const char* kChordsId = "com.unlikelyware.notegran.chords";
 constexpr const char* kGridId   = "com.unlikelyware.notegran.grid";
+constexpr const char* kBurstId  = "com.unlikelyware.notegran.burst";
 
 // Parameter ids (PLAN.md; plugin.cpp's ParamId).
 enum : clap_id {
@@ -292,7 +293,9 @@ std::vector<Event> run(Instance& r, Input& first, int64_t until, uint32_t frames
 // --- tests -----------------------------------------------------------------------------------
 
 void testDescriptor() {
-    CHECK(gFactory->get_plugin_count(gFactory) == 3);
+    CHECK(gFactory->get_plugin_count(gFactory) == 4);
+    const clap_plugin_descriptor_t* b = gFactory->get_plugin_descriptor(gFactory, 3);
+    CHECK(b != nullptr && std::strcmp(b->id, kBurstId) == 0 && std::strcmp(b->name, "NoteGran Burst") == 0);
     const clap_plugin_descriptor_t* g = gFactory->get_plugin_descriptor(gFactory, 2);
     CHECK(g != nullptr && std::strcmp(g->id, kGridId) == 0 && std::strcmp(g->name, "NoteGran Grid") == 0);
     const clap_plugin_descriptor_t* c = gFactory->get_plugin_descriptor(gFactory, 1);
@@ -723,6 +726,61 @@ void testGrid() {
     CHECK(sink.text.rfind("NoteGran Grid 1\n", 0) == 0 && sink.text.find("t3_pick 2\n") != std::string::npos);
 }
 
+void testBurst() {
+    Instance r(kBurstId);
+    CHECK(r.ok());
+    if (!r.ok()) return;
+    CHECK(r.params->count(r.plugin) == 34);
+    clap_param_info_t info{};
+    CHECK(r.params->get_info(r.plugin, 11, &info) && std::strcmp(info.name, "T1 Rotation") == 0 && info.default_value == 25);
+    char text[64];
+    CHECK(r.params->value_to_text(r.plugin, 5, 2, text, sizeof(text)) && std::strcmp(text, "Loop") == 0);
+    CHECK(r.params->value_to_text(r.plugin, 31, 0, text, sizeof(text)) && std::strcmp(text, "None") == 0);
+
+    // A MIDI 1.0 note-on: up to 8 grains (two on one key at once are one) over the 800 ms phrase
+    // (38400 samples), from the note-on, in MIDI 1.0; released at once, it plays out (Finish).
+    // Then it sleeps.
+    r.set(26, 32);   // Voices
+    r.set(33, 1);    // Seed
+    r.set(16, 1);    // Length, ms
+    Input in;
+    in.midi1(100, 0x90, 60, 100);
+    in.midi1(200, 0x80, 60, 0);
+    std::vector<Event> all;
+    for (int b = 0; b < 100; ++b) {   // 51200 samples
+        Input none;
+        auto  out = r.process(b == 0 ? in : none, 512);
+        all.insert(all.end(), out.begin(), out.end());
+    }
+    std::vector<Event> ons;
+    for (const Event& e : all)
+        if (isMidi1NoteOn(e)) ons.push_back(e);
+    CHECK(ons.size() >= 6 && ons.size() <= 8 && ons[0].time == 100);
+    for (const Event& e : ons) CHECK(e.time >= 100 && e.time < 100 + 38400);
+    CHECK(r.lastStatus == CLAP_PROCESS_SLEEP);
+
+    // Loop: released in the second pass, so two passes, the second the first again.
+    r.set(5, 2);
+    Input held;
+    held.midi1(0, 0x90, 62, 100);
+    ons.clear();
+    for (int b = 0; b < 200; ++b) {   // 102400 samples
+        Input none;
+        if (b == 140) none.midi1(0, 0x80, 62, 0);   // at 71680: the pass from 38400 finishes
+        auto out = r.process(b == 0 ? held : none, 512);
+        for (const Event& e : out)
+            if (isMidi1NoteOn(e)) ons.push_back(e);
+    }
+    const size_t pass = ons.size() / 2;
+    CHECK(pass >= 6 && ons.size() == 2 * pass && ons.back().time < 51200 + 2 * 38400);
+    for (size_t i = pass; i < ons.size(); ++i) CHECK(ons[i].time == ons[i - pass].time + 38400);
+
+    Sink                 sink;
+    const clap_ostream_t os = {&sink, Sink::write};
+    CHECK(r.state->save(r.plugin, &os));
+    CHECK(sink.text.rfind("NoteGran Burst 1\n", 0) == 0 && sink.text.find("release 2\n") != std::string::npos);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -747,6 +805,7 @@ int main(int argc, char** argv) {
     testState();
     testChords();
     testGrid();
+    testBurst();
     gEntry->deinit();
     if (failures != 0) {
         std::fprintf(stderr, "NoteGran CLAP: %d check(s) failed\n", failures);

@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/Burst.h"
 #include "core/Chords.h"
 #include "core/Clock.h"
 #include "core/Cloud.h"
@@ -440,7 +441,7 @@ const Member* member(const NoteSet& s, std::uint8_t key, std::uint8_t channel = 
 void testSetBasics() {
     NoteSet s;
     Heard h = s.input(0, on1(60, 100));
-    CHECK(h.kind == Heard::Kind::SetNote && !h.strike && h.key == 60);
+    CHECK(h.kind == Heard::Kind::SetNote && h.strike && !h.release && h.key == 60);
     s.input(0, on2(64, 0x4000, (64 << 9) + 171));
     s.settle(0);
     CHECK(s.size() == 2);
@@ -587,7 +588,7 @@ void testChannelSplit() {
     Heard h = s.input(0, on1(36, 127, 9));
     CHECK(h.kind == Heard::Kind::Trigger && h.strike && h.channel == 9 && h.velocity == 0xFFFF);
     h = s.input(10, off1(36, 9));
-    CHECK(h.kind == Heard::Kind::Trigger && !h.strike);
+    CHECK(h.kind == Heard::Kind::Trigger && !h.strike && h.release);
     CHECK(s.input(0, on1(60, 100, 3)).kind == Heard::Kind::SetNote);
     s.settle(10);
     CHECK(s.size() == 1 && member(s, 60, 3));
@@ -1917,6 +1918,216 @@ void testGridMeterAndLock() {
     CHECK(on.size() == 16 && on[8].key == 60 && on[8].time == 48000);
 }
 
+
+// --- Burst --------------------------------------------------------------------------------
+
+CloudRun runBurst(const BurstParams& params, std::vector<InputEvent> inputs, std::int64_t length, bool oneBlock,
+                  const TransportFn& transport = nullptr, std::uint32_t sizesSeed = 777) {
+    auto core = std::make_unique<BurstCore>();
+    core->setSampleRate(48000.0);
+    core->setParams(params);
+    CloudRun               run;
+    std::vector<NoteEvent> buffer(8192);
+    Sizes                  sizes;
+    sizes.lcg      = sizesSeed;
+    std::size_t in = 0;
+    for (std::int64_t start = 0; start < length;) {
+        const std::int64_t frames = oneBlock ? length : std::min(sizes.next(), length - start);
+        const std::size_t  first  = in;
+        while (in < inputs.size() && inputs[in].time < start + frames) ++in;
+        NoteOut          out(buffer.data(), buffer.size());
+        Transport        t;
+        const Transport* tp = transport ? transport(start, t) : nullptr;
+        core->process(start, frames, tp, inputs.data() + first, in - first, out);
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            CHECK(out[i].time >= start && out[i].time < start + frames);
+            run.events.push_back(out[i]);
+        }
+        start += frames;
+    }
+    CHECK(!core->busy() || length < 400000);
+    for (const InputEvent& i : inputs) run.passed.push_back(i.pass);
+    return run;
+}
+
+BurstParams burstBasic() {
+    BurstParams p;                    // 8 points over 800 ms (38400 samples), 1 ms grains
+    p.settings.voices = 32;
+    p.lengthMs        = 1.0;
+    p.decay           = 0;
+    return p;
+}
+
+void testBurstPoints() {
+    BurstCore c;
+    c.setSampleRate(48000.0);
+    BurstParams p = burstBasic();
+    p.count       = 16;
+    c.setParams(p);
+    std::array<BurstCore::Point, BurstCore::kMaxPoints> a{}, b{};
+    CHECK(c.phrasePoints(3, a) == 16);
+    CHECK(a[0].time == 0 && a[15].time >= 65536 * 15 / 16 - 2 && a[15].time <= 65536 * 15 / 16);
+    bool spread = false;
+    for (int i = 0; i < 16; ++i) {
+        if (i > 0) CHECK(a[i].time >= a[i - 1].time);
+        CHECK(a[i].offset >= -12 * 512 && a[i].offset <= 12 * 512);
+        if (a[i].offset != a[0].offset) spread = true;
+    }
+    CHECK(spread);
+    c.phrasePoints(3, b);
+    for (int i = 0; i < 16; ++i) CHECK(a[i].time == b[i].time && a[i].offset == b[i].offset);
+    c.phrasePoints(4, b);
+    bool differ = false;
+    for (int i = 0; i < 16; ++i) differ = differ || a[i].offset != b[i].offset || a[i].time != b[i].time;
+    CHECK(differ);
+
+    // T1 only: every point at its fixed point, so a chord at (fixedY - 0.5) × 2 × Range.
+    p.probability = kOne16;
+    p.t1          = BurstTransform{0.3, 0.75, 0.5, 0.0};
+    c.setParams(p);
+    CHECK(c.phrasePoints(0, a) == 16);
+    for (int i = 0; i < 16; ++i) CHECK(a[i].time == 0 && std::abs(a[i].offset - 6 * 512) <= 1);
+
+    // One point: on the note-on.
+    p     = burstBasic();
+    p.count = 1;
+    c.setParams(p);
+    CHECK(c.phrasePoints(9, a) == 1 && a[0].time == 0);
+}
+
+void testBurstPhrase() {
+    BurstParams p = burstBasic();
+    BurstCore   c;
+    c.setSampleRate(48000.0);
+    c.setParams(p);
+    std::array<BurstCore::Point, BurstCore::kMaxPoints> pts{};
+    c.phrasePoints(0, pts);   // the first phrase's (Vary: strike 0)
+
+    // A note-on at 1000: 8 grains from it, over 38400 samples, at the root plus each offset.
+    std::vector<InputEvent> in = {input(1000, on2(60, 0x8000)), input(2000, off2(60))};
+    auto run = runBurst(p, in, 96000, false);
+    auto on  = ons(run.events);
+    CHECK(on.size() == 8);
+    for (std::size_t i = 0; i < on.size() && i < 8; ++i) {
+        CHECK(on[i].time == 1000 + ((38400 * std::int64_t{pts[i].time}) >> 16));
+        CHECK(on[i].pitch79 == 60 * 512 + pts[i].offset);
+        CHECK(on[i].velocity == 0x8000);
+    }
+    checkPlayable(run.events, 32, true);
+    CHECK(!run.passed[0] && !run.passed[1]);
+
+    // Decay 1: each grain quieter than the last (by the time it's at).
+    p.decay = kOne16;
+    on      = ons(runBurst(p, in, 96000, false).events);
+    CHECK(on.size() == 8 && on[0].velocity == 0x8000);
+    for (std::size_t i = 1; i < on.size(); ++i) CHECK(on[i].velocity <= on[i - 1].velocity);
+    CHECK(on[7].velocity < 0x8000 * 3 / 10);
+
+    // MIDI 1.0: the same grains, rounded to keys, in MIDI 1.0.
+    p.decay = 0;
+    in      = {input(1000, on1(60)), input(2000, off1(60))};
+    on      = ons(runBurst(p, in, 96000, true).events);
+    CHECK(on.size() == 8);
+    for (const NoteEvent& e : on) CHECK(e.dialect == Dialect::Midi1 && e.pitch79 == e.key << 9);
+}
+
+void testBurstRelease() {
+    BurstParams p = burstBasic();
+    BurstCore   c;
+    c.setSampleRate(48000.0);
+    c.setParams(p);
+    std::array<BurstCore::Point, BurstCore::kMaxPoints> pts{};
+    c.phrasePoints(0, pts);
+    const std::int64_t half = 1000 + 19200;
+    std::size_t        before = 0;   // grains before the middle of the phrase
+    for (int i = 0; i < 8; ++i)
+        if (1000 + ((38400 * std::int64_t{pts[i].time}) >> 16) < half) ++before;
+    const std::vector<InputEvent> in = {input(1000, on2(60, 0x8000)), input(half, off2(60))};
+
+    // Finish: all of it.
+    CHECK(ons(runBurst(p, in, 96000, false).events).size() == 8);
+    // Stop: what came before the note-off.
+    p.release = Release::Stop;
+    auto run  = runBurst(p, in, 96000, false);
+    CHECK(ons(run.events).size() == before);
+    checkPlayable(run.events, 32, true);
+    // Loop: held for 2.5 passes, so three passes (pass k Duration after pass 0, with new draws
+    // only for the spreads).
+    p.release = Release::Loop;
+    const std::vector<InputEvent> held = {input(1000, on2(60, 0x8000)), input(1000 + 38400 * 5 / 2, off2(60))};
+    auto on = ons(runBurst(p, held, 200000, false).events);
+    CHECK(on.size() == 24);
+    for (std::size_t i = 8; i < on.size(); ++i) CHECK(on[i].time == on[i - 8].time + 38400 && on[i].pitch79 == on[i - 8].pitch79);
+    // Released exactly where a pass starts: that pass is played.
+    const std::vector<InputEvent> edge = {input(1000, on2(60, 0x8000)), input(1000 + 38400, off2(60))};
+    CHECK(ons(runBurst(p, edge, 200000, false).events).size() == 16);
+}
+
+void testBurstRepeatable() {
+    BurstParams p   = burstBasic();
+    p.release       = Release::Loop;
+    p.lengthMs      = 60.0;
+    p.lenSpread     = kOne16 / 2;
+    p.velSpread     = kOne16 / 3;
+    p.decay         = kOne16 / 2;
+    p.count         = 12;
+    p.settings.voices = 8;
+    p.settings.dry  = true;
+    std::vector<InputEvent> in;
+    for (int k = 0; k < 12; ++k) {
+        const auto key = static_cast<std::uint8_t>(48 + (k * 7) % 24);
+        in.push_back(input(k * 17000, on2(key, static_cast<std::uint16_t>(0x3000 + k * 0x1000))));
+        in.push_back(input(k * 17000 + 9000 + k * 3000, off2(key)));
+    }
+    std::stable_sort(in.begin(), in.end(), [](const InputEvent& a, const InputEvent& b) { return a.time < b.time; });
+    const auto one = runBurst(p, in, 480000, true);
+    CHECK(sameEvents(one.events, runBurst(p, in, 480000, false, nullptr, 777).events));
+    CHECK(sameEvents(one.events, runBurst(p, in, 480000, false, nullptr, 4242).events));
+    checkPlayable(one.events, 8, true);
+    CHECK(ons(one.events).size() > 50);
+    // Beats: the same, a phrase two beats long.
+    p.settings.sync = Clock::Mode::Beats;
+    const auto beats = runBurst(p, in, 480000, true);
+    CHECK(sameEvents(beats.events, runBurst(p, in, 480000, false, nullptr, 99).events));
+    checkPlayable(beats.events, 8, true);
+}
+
+void testBurstPhrasesAndTriggers() {
+    // 17 phrases: the 17th replaces the first, whose grains after it are dropped.
+    BurstParams p = burstBasic();
+    p.count       = 4;
+    p.durationMs  = 1000.0;
+    std::vector<InputEvent> in;
+    for (int k = 0; k < 17; ++k) in.push_back(input(k * 10, on2(static_cast<std::uint8_t>(40 + k), 0x8000)));
+    CHECK(ons(runBurst(p, in, 96000, false).events).size() == 1 + 16 * 4);
+
+    // A trigger channel: each trigger note-on roots a phrase on the newest member, at the trigger's
+    // velocity; the trigger's note-off releases it.
+    p             = burstBasic();
+    p.release     = Release::Stop;
+    p.settings.triggerChannel = 9;
+    const std::vector<InputEvent> trig = {input(0, on2(60, 0xFFFF)), input(0, on2(67, 0xFFFF)),
+                                          input(500, on2(36, 0x8000, 0, 9)), input(500 + 38400, off2(36, 9))};
+    auto run = runBurst(p, trig, 96000, false);
+    auto on  = ons(run.events);
+    CHECK(on.size() == 8 && on[0].time == 500 && on[0].velocity == 0x8000);
+    CHECK(!run.passed[2] && !run.passed[3]);
+    BurstCore c;
+    c.setSampleRate(48000.0);
+    c.setParams(p);
+    std::array<BurstCore::Point, BurstCore::kMaxPoints> pts{};
+    c.phrasePoints(0, pts);
+    for (std::size_t i = 0; i < on.size(); ++i) CHECK(on[i].pitch79 == 67 * 512 + pts[i].offset);
+    // No set: no phrase.
+    CHECK(ons(runBurst(p, {input(500, on2(36, 0x8000, 0, 9))}, 96000, false).events).empty());
+
+    // All Notes Off ends the phrases.
+    p = burstBasic();
+    const std::vector<InputEvent> reset = {input(0, on2(60, 0x8000)), input(5, m1(0xB, 0, 123, 0))};
+    on = ons(runBurst(p, reset, 96000, false).events);
+    CHECK(on.size() == 1 && on[0].time == 0);
+}
+
 } // namespace
 
 int main() {
@@ -1969,6 +2180,11 @@ int main() {
     testGridPlaying();
     testGridDensityAndChaos();
     testGridMeterAndLock();
+    testBurstPoints();
+    testBurstPhrase();
+    testBurstRelease();
+    testBurstRepeatable();
+    testBurstPhrasesAndTriggers();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

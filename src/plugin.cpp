@@ -1,5 +1,5 @@
 // src/plugin.cpp — NoteGran: the CLAP plugins around the core. One .clap whose factory lists one
-// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud, Chords and Grid. Each has its own
+// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud, Chords, Grid and Burst. Each has its own
 // parameter table, state header and core; the events, dialects, block splitting and state code are
 // shared. A note effect: one note
 // input and one note output port, CLAP | MIDI | MIDI2, preferring MIDI2 (as Retune). Hand-written
@@ -28,6 +28,7 @@
 #include <random>
 #include <string>
 
+#include "core/Burst.h"
 #include "core/Chords.h"
 #include "core/Cloud.h"
 #include "core/Grid.h"
@@ -211,9 +212,58 @@ const ParamSpec kGridParams[] = {
     {"Tier 5 Pick", "t5_pick", 0, 3, 3, Kind::Menu, kTierPickLabels, ""},
 };
 
+// --- NoteGran Burst ---
+
+const char* const kReleaseLabels[] = {"Finish", "Stop", "Loop"};
+
+enum BurstParamId : std::uint32_t {
+    kBSync, kBDuration, kBDurationBeats, kBCount, kBRange, kBRelease, kBVary, kBProbability,
+    kBT1X, kBT1Y, kBT1Contraction, kBT1Rotation, kBT2X, kBT2Y, kBT2Contraction, kBT2Rotation,
+    kBLength, kBLengthBeats, kBLevel, kBDecay, kBVelSpread, kBLenSpread, kBTranspose, kBQuantize, kBEdo, kBRoot,
+    kBVoices, kBWhenFull, kBDry, kBHoldOver, kBSetChannel, kBTriggerChannel, kBLatch, kBSeed,
+};
+
+// The attractor's maps (PLAN.md, "NoteGran Burst"): X is time, Y pitch, both 0 .. 1.
+const ParamSpec kBurstParams[] = {
+    {"Sync", "sync", 0, 1, 0, Kind::Menu, kSyncLabels, ""},
+    {"Duration", "duration_ms", 10, 10000, 800, Kind::Number, nullptr, "ms"},
+    {"Duration (beats)", "duration_beats", 1.0 / 16, 32, 2, Kind::Number, nullptr, "beats"},
+    {"Count", "count", 1, 64, 8, Kind::Stepped, nullptr, ""},
+    {"Range", "range", 0, 48, 12, Kind::Number, nullptr, "st"},
+    {"Release", "release", 0, 2, 0, Kind::Menu, kReleaseLabels, ""},
+    {"Vary", "vary", 0, 1, 1, Kind::Menu, kOffOnLabels, ""},
+    {"Probability", "probability", 0, 1, 0.5, Kind::Number, nullptr, ""},
+    {"T1 X", "t1_x", 0, 1, 0.2, Kind::Number, nullptr, ""},
+    {"T1 Y", "t1_y", 0, 1, 0.4, Kind::Number, nullptr, ""},
+    {"T1 Contraction", "t1_contraction", 0.01, 0.99, 0.6, Kind::Number, nullptr, ""},
+    {"T1 Rotation", "t1_rotation", -180, 180, 25, Kind::Number, nullptr, "deg"},
+    {"T2 X", "t2_x", 0, 1, 0.8, Kind::Number, nullptr, ""},
+    {"T2 Y", "t2_y", 0, 1, 0.6, Kind::Number, nullptr, ""},
+    {"T2 Contraction", "t2_contraction", 0.01, 0.99, 0.6, Kind::Number, nullptr, ""},
+    {"T2 Rotation", "t2_rotation", -180, 180, -25, Kind::Number, nullptr, "deg"},
+    {"Length", "length_ms", 1, 5000, 100, Kind::Number, nullptr, "ms"},
+    {"Length (beats)", "length_beats", 1.0 / 64, 16, 0.25, Kind::Number, nullptr, "beats"},
+    {"Level", "level", 0, 2, 1, Kind::Number, nullptr, ""},
+    {"Decay", "decay", 0, 1, 0.5, Kind::Number, nullptr, ""},
+    {"Velocity spread", "velocity_spread", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Length spread", "length_spread", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Transpose", "transpose", -48, 48, 0, Kind::Number, nullptr, "st"},
+    {"Quantize", "quantize", 0, 2, 0, Kind::Menu, kQuantizeLabels, ""},
+    {"EDO", "edo", 1, 96, 12, Kind::Stepped, nullptr, ""},
+    {"Root", "root", 0, 11, 9, Kind::Menu, kRootLabels, ""},
+    {"Voices", "voices", 1, 32, 8, Kind::Stepped, nullptr, ""},
+    {"When full", "when_full", 0, 1, 0, Kind::Menu, kWhenFullLabels, ""},
+    {"Dry", "dry", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Hold over", "hold_over", 0, 200, 20, Kind::Number, nullptr, "ms"},
+    {"Set channel", "set_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},
+    {"Trigger channel", "trigger_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},
+    {"Latch", "latch", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Seed", "seed", 0, 9999, 0, Kind::Stepped, nullptr, ""},
+};
+
 // --- the plugins ---
 
-enum class Which : std::uint8_t { Cloud, Chords, Grid };
+enum class Which : std::uint8_t { Cloud, Chords, Grid, Burst };
 
 struct PluginDef {
     const clap_plugin_descriptor_t* desc;
@@ -256,8 +306,9 @@ struct Plugin {
 
     std::unique_ptr<CloudCore>  cloud;    // the one this plugin is
     std::unique_ptr<GridCore>   grid;
+    std::unique_ptr<BurstCore>  burst;
     std::unique_ptr<ChordsCore> chords;
-    Assigner*                   assigner = nullptr;   // cloud or grid
+    Assigner*                   assigner = nullptr;   // cloud, grid or burst
     std::uint64_t startSeed = 1;       // Seed 0: chosen at activate
     std::int64_t  now       = 0;       // absolute sample count at the block's start
     bool          endAll    = false;   // reset / reactivation: end what's sounding first
@@ -369,9 +420,45 @@ GridParams gridParams(const Plugin* p) {
     return g;
 }
 
+BurstParams burstParams(const Plugin* p) {
+    BurstParams       b;
+    AssignerSettings& a = b.settings;
+    a.sync              = intValue(p, kBSync) == 1 ? Clock::Mode::Beats : Clock::Mode::Free;
+    a.voices            = intValue(p, kBVoices);
+    a.whenFull          = intValue(p, kBWhenFull) == 1 ? WhenFull::Steal : WhenFull::Skip;
+    a.dry               = intValue(p, kBDry) == 1;
+    a.holdOverMs        = value(p, kBHoldOver);
+    a.setChannel        = intValue(p, kBSetChannel) - 1;
+    a.triggerChannel    = intValue(p, kBTriggerChannel) - 1;
+    a.latch             = intValue(p, kBLatch) == 1;
+    const int seed      = intValue(p, kBSeed);
+    a.seed              = seed == 0 ? p->startSeed : static_cast<std::uint64_t>(seed);
+    b.durationMs        = value(p, kBDuration);
+    b.durationBeats     = std::llround(value(p, kBDurationBeats) * static_cast<double>(kBeat));
+    b.count             = intValue(p, kBCount);
+    b.range             = PitchParams::fromSemitones(value(p, kBRange));
+    b.release           = static_cast<Release>(std::clamp(intValue(p, kBRelease), 0, 2));
+    b.vary              = intValue(p, kBVary) == 1;
+    b.probability       = toQ16(value(p, kBProbability));
+    b.t1                = BurstTransform{value(p, kBT1X), value(p, kBT1Y), value(p, kBT1Contraction), value(p, kBT1Rotation)};
+    b.t2                = BurstTransform{value(p, kBT2X), value(p, kBT2Y), value(p, kBT2Contraction), value(p, kBT2Rotation)};
+    b.lengthMs          = value(p, kBLength);
+    b.lengthBeats       = std::llround(value(p, kBLengthBeats) * static_cast<double>(kBeat));
+    b.level             = toQ16(value(p, kBLevel));
+    b.decay             = toQ16(value(p, kBDecay));
+    b.velSpread         = toQ16(value(p, kBVelSpread));
+    b.lenSpread         = toQ16(value(p, kBLenSpread));
+    b.pitch.transpose   = PitchParams::fromSemitones(value(p, kBTranspose));
+    b.pitch.quantize    = static_cast<Quantize>(std::clamp(intValue(p, kBQuantize), 0, 2));
+    b.pitch.edo         = intValue(p, kBEdo);
+    b.pitch.root        = intValue(p, kBRoot);
+    return b;
+}
+
 void applyParams(Plugin* p) {
     if (p->cloud) p->cloud->setParams(cloudParams(p));
     if (p->grid) p->grid->setParams(gridParams(p));
+    if (p->burst) p->burst->setParams(burstParams(p));
     if (p->chords) p->chords->setParams(chordsParams(p));
 }
 
@@ -712,6 +799,10 @@ const char* zeroText(const PluginDef& def, clap_id id) {
         if (id == kGSetChannel) return "All";
         if (id == kGTriggerChannel) return "None";
         if (id == kGSeed) return "New each start";
+    } else if (def.which == Which::Burst) {
+        if (id == kBSetChannel) return "All";
+        if (id == kBTriggerChannel) return "None";
+        if (id == kBSeed) return "New each start";
     } else if (id == kScaleChannel) {
         return "None";
     }
@@ -880,11 +971,26 @@ const clap_plugin_descriptor_t kGrid = {
     .features     = kFeatures,
 };
 
-// One per plugin, in the factory's order; the next ones (Burst, Buffer) are appended.
+const clap_plugin_descriptor_t kBurst = {
+    .clap_version = CLAP_VERSION_INIT,
+    .id           = "com.unlikelyware.notegran.burst",
+    .name         = "NoteGran Burst",
+    .vendor       = "Unlikelyware",
+    .url          = "https://unlikelyware.com",
+    .manual_url   = "",
+    .support_url  = "",
+    .version      = NOTEGRAN_VERSION_STRING,
+    .description  = "Each note played starts a phrase of grains around it, drawn from a two-transform "
+                    "fractal: played out, stopped or looped when the note is released.",
+    .features     = kFeatures,
+};
+
+// One per plugin, in the factory's order; the next one (Buffer) is appended.
 const PluginDef kPlugins[] = {
     {&kCloud, Which::Cloud, kCloudParams, sizeof(kCloudParams) / sizeof(kCloudParams[0]), "NoteGran Cloud "},
     {&kChords, Which::Chords, kChordsParams, sizeof(kChordsParams) / sizeof(kChordsParams[0]), "NoteGran Chords "},
     {&kGrid, Which::Grid, kGridParams, sizeof(kGridParams) / sizeof(kGridParams[0]), "NoteGran Grid "},
+    {&kBurst, Which::Burst, kBurstParams, sizeof(kBurstParams) / sizeof(kBurstParams[0]), "NoteGran Burst "},
 };
 constexpr std::uint32_t kPluginCount = sizeof(kPlugins) / sizeof(kPlugins[0]);
 
@@ -905,6 +1011,10 @@ const clap_plugin_t* factory_create(const clap_plugin_factory_t*, const clap_hos
     case Which::Grid:
         p->grid.reset(new (std::nothrow) GridCore());
         p->assigner = p->grid.get();
+        break;
+    case Which::Burst:
+        p->burst.reset(new (std::nothrow) BurstCore());
+        p->assigner = p->burst.get();
         break;
     case Which::Chords: p->chords.reset(new (std::nothrow) ChordsCore()); break;
     }

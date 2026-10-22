@@ -37,7 +37,8 @@ struct Member {
 };
 
 // What one input message was, for the caller: whether it passes through (Other always; SetNote
-// only if Dry), asks for a pick (a Trigger strike), or ends everything (Reset).
+// only if Dry), asks for a pick (a Trigger strike), or ends everything (Reset). Burst also hears
+// the set's strikes and releases, to start and release its phrases.
 struct Heard {
     enum class Kind : std::uint8_t {
         Other,     // not about a set or trigger note: passes through
@@ -46,7 +47,8 @@ struct Heard {
         Reset,     // All Notes Off or All Sound Off: the set is cleared
     };
     Kind          kind     = Kind::Other;
-    bool          strike   = false;  // Trigger: a note-on, asking for one pick
+    bool          strike   = false;  // a note-on (on a trigger channel, asking for one pick)
+    bool          release  = false;  // a note-off
     std::uint8_t  group    = 0;
     std::uint8_t  channel  = 0;
     std::uint8_t  key      = 0;
