@@ -37,6 +37,10 @@ endif()
 add_subdirectory(external/dpf)
 dpf__add_dgl_opengl(TRUE FALSE FALSE)
 target_compile_options(dgl-opengl PRIVATE -w)   # vendored: its warnings aren't ours
+# NoteGran's own namespace, as every DPF user's (UmpireDAW's docs/decisions.md, "DPF fork"): on
+# macOS pugl names its Objective-C classes after it, and every DPF plugin built with the default
+# ("DGL") registers the same ones, so two in one host would collide. Harmless on Linux.
+target_compile_definitions(dgl-opengl PUBLIC DGL_NAMESPACE=NoteGranDGL)
 
 # resources/* compiled in as bytes with DPF's res2c.py (the logo), read with NanoVG at run time.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
