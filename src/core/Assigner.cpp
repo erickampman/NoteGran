@@ -26,6 +26,11 @@ void Assigner::applySettings(const AssignerSettings& s) noexcept {
     triggerChannel_ = s.triggerChannel;
 }
 
+std::int64_t Assigner::beatPosition() const noexcept {
+    if (clock_.mode() != Clock::Mode::Beats || clock_.blockEnd() <= clock_.blockStart()) return -1;
+    return clock_.positionAt(clock_.blockEnd() - 1);
+}
+
 void Assigner::reset(std::int64_t time, NoteOut& out) noexcept {
     owned_.endAll(time, out);
     set_.clear();

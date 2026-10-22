@@ -66,6 +66,9 @@ public:
     // Notes sounding, or a set to play from: the plugin keeps being processed (PLAN.md).
     virtual bool busy() const noexcept { return !owned_.empty() || !set_.empty(); }
 
+    // Where the last block ended, in beat units, or -1 when it isn't on beats (an editor's playhead).
+    std::int64_t beatPosition() const noexcept;
+
     const NoteSet&    set() const noexcept { return set_; }
     const OwnedNotes& owned() const noexcept { return owned_; }
 

@@ -6,6 +6,7 @@
 //   ng_plugin_*   per-instance plumbing, and which plugin this is
 //   ng_param_*    a parameter's description, value and text, and edits with gestures
 //   ng_live_read  what's playing, for the editor's live views
+//   ng_grid_cycle, ng_burst_*, ng_chords_*   what the current settings would make, for the editors' previews
 // Provided by the editor, called by plugin.cpp:
 //   ng_gui_extension   the CLAP gui vtable for this platform
 //   ng_gui_on_timer    CLAP timer-support: pumps the DPF/pugl event loop and refreshes the editor
@@ -54,9 +55,10 @@ void ng_param_begin_gesture(const clap_plugin_t* plugin, uint32_t index);
 void ng_param_set_from_gui(const clap_plugin_t* plugin, uint32_t index, double value);
 void ng_param_end_gesture(const clap_plugin_t* plugin, uint32_t index);
 
-// What's playing: the set's members, and the notes the plugin started lately (a ring, numbered so
-// the editor can tell which are new). Pitches in 1/512 semitone, velocities 16-bit.
-enum { NG_LIVE_MEMBERS = 64, NG_LIVE_NOTES = 64 };
+// What's playing: the set's members, the notes the plugin started lately (a ring, numbered so the
+// editor can tell which are new), and the notes sounding now. Pitches in 1/512 semitone,
+// velocities 16-bit. Grid adds the slot it's at; Chords the scale it's using.
+enum { NG_LIVE_MEMBERS = 64, NG_LIVE_NOTES = 64, NG_LIVE_SOUNDING = 64, NG_LIVE_SCALE = 96 };
 
 typedef struct ng_live {
     uint32_t memberCount;
@@ -65,10 +67,37 @@ typedef struct ng_live {
     uint32_t notesStarted;                    // ever; note k is at [k % NG_LIVE_NOTES]
     uint16_t notePitch[NG_LIVE_NOTES];
     uint16_t noteVelocity[NG_LIVE_NOTES];
+    uint32_t soundingCount;
+    uint16_t soundingPitch[NG_LIVE_SOUNDING];
+    uint16_t soundingVelocity[NG_LIVE_SOUNDING];
+    int64_t  slot;                            // Grid: the slot of its rate now; -1 otherwise
+    uint32_t scaleEdo, scaleOrigin, scaleKeyStep, scaleCount;   // Chords (scaleCount 0 otherwise)
+    uint8_t  scaleSteps[NG_LIVE_SCALE];       // above the key, ascending
 } ng_live_t;
 
 // A consistent copy of the latest; false if none could be taken just now (try again next tick).
 bool ng_live_read(const clap_plugin_t* plugin, ng_live_t* out);
+
+// Grid, from the current settings: each slot of one cycle of its meter, as its tier (0 .. 4);
+// returns how many.
+enum { NG_GRID_CYCLE = 32 };
+int ng_grid_cycle(const clap_plugin_t* plugin, int tiers[NG_GRID_CYCLE]);
+
+// Burst, from the current settings (main thread). The attractor behind phrase `key`, in its own
+// space (0..1 each way; t1: which map made each point), and the phrase it makes: each point's time
+// (0..1 of Duration) and offset from the root in semitones. Both return how many (Count).
+enum { NG_BURST_POINTS = 64 };
+int ng_burst_attractor(const clap_plugin_t* plugin, int64_t key, float* xs, float* ys, bool* t1);
+int ng_burst_phrase(const clap_plugin_t* plugin, int64_t key, float* times, float* offsets);
+
+// Chords, from the current settings (main thread): the chord on scale degree `degree` from the
+// key in octave 4, as pitches in 1/512 semitone, lowest first; returns how many (0: none, as with a
+// scale channel, whose scale only the playing plugin knows).
+int ng_chords_preview(const clap_plugin_t* plugin, int degree, int32_t* pitches);
+// The scale the current settings make (as ng_live_t's scale fields); false with a scale channel,
+// whose scale is ng_live_t's.
+bool ng_chords_scale(const clap_plugin_t* plugin, uint32_t* edo, uint32_t* origin, uint32_t* keyStep, uint32_t* count,
+                     uint8_t steps[NG_LIVE_SCALE]);
 
 // --- provided by the editor, called by plugin.cpp --------------------------------------------
 const clap_plugin_gui_t* ng_gui_extension(void);

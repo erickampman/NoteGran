@@ -17,6 +17,7 @@
 
 #include "NanoVG.hpp"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -42,9 +43,22 @@ public:
         fTitleHeight = static_cast<int>(28 * s);
     }
 
-    // Register a control (already parented to this box) for row layout.
-    void addControl(SubWidget* control) { fControls.push_back(control); }
+    // Register a control (already parented to this box) for row layout. NoteGran: a control may
+    // take several cells (a wide menu), and the box may wrap into rows of `columns` cells.
+    void addControl(SubWidget* control, int cells = 1)
+    {
+        fControls.push_back(control);
+        fCells.push_back(cells < 1 ? 1 : cells);
+    }
     int  controlCount() const { return static_cast<int>(fControls.size()); }
+    void setColumns(int columns) { fColumns = columns; }   // NoteGran: 0 is one row
+    // NoteGran: the box's width in cells (its columns, or all its cells in one row).
+    int  widthInCells() const
+    {
+        int total = 0;
+        for (int c : fCells) total += c;
+        return fColumns > 0 ? fColumns : (total > 0 ? total : 1);
+    }
 
     // The inner content rectangle (window-absolute), below the title strip and inside padding.
     // For panels that lay their children out themselves rather than via relayout().
@@ -56,7 +70,8 @@ public:
         h = static_cast<int>(getHeight()) - fTitleHeight - fPadding;
     }
 
-    // Lay the registered controls out evenly across the content area.
+    // Lay the registered controls out evenly across the content area. NoteGran: in rows of
+    // widthInCells() cells, a control that doesn't fit the rest of a row starting the next.
     void relayout()
     {
         const int n = static_cast<int>(fControls.size());
@@ -70,11 +85,23 @@ public:
         if (contentW <= 0 || contentH <= 0)
             return;
 
-        const int cellW = contentW / n;
+        const int cols = widthInCells();
+        std::vector<int> row(fControls.size()), col(fControls.size());
+        int r = 0, c = 0;
         for (int i = 0; i < n; ++i)
         {
-            fControls[i]->setSize(static_cast<uint>(cellW), static_cast<uint>(contentH));
-            fControls[i]->setAbsolutePos(contentX + i * cellW, contentY);
+            if (c > 0 && c + fCells[i] > cols) { ++r; c = 0; }
+            row[i] = r;
+            col[i] = c;
+            c += fCells[i];
+        }
+        const int rows = r + 1;
+        for (int i = 0; i < n; ++i)
+        {
+            const int x0 = contentW * col[i] / cols, x1 = contentW * std::min(col[i] + fCells[i], cols) / cols;
+            const int y0 = contentH * row[i] / rows, y1 = contentH * (row[i] + 1) / rows;
+            fControls[i]->setSize(static_cast<uint>(x1 - x0), static_cast<uint>(y1 - y0));
+            fControls[i]->setAbsolutePos(contentX + x0, contentY + y0);
         }
     }
 
@@ -110,6 +137,8 @@ protected:
 
 private:
     std::vector<SubWidget*> fControls;
+    std::vector<int>        fCells;
+    int                     fColumns = 0;
     std::string             fTitle;
     Color                   fAccent { 150, 200, 210 };
     bool                    fHasFont = false;

@@ -69,6 +69,9 @@ class GridCore : public Assigner {
 public:
     void setParams(const GridParams& params) noexcept;
 
+    // The slot a beat position (kBeat units) is in, as collectGrains numbers them.
+    std::int64_t slotAt(std::int64_t beats) const noexcept;
+
 private:
     void reapply() noexcept override { setParams(params_); }
     void collectGrains(std::size_t& count) noexcept override;

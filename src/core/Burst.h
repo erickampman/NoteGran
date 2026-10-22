@@ -74,6 +74,14 @@ public:
     // draw index.
     int phrasePoints(std::int64_t key, std::array<Point, kMaxPoints>& points) const noexcept;
 
+    // The attractor's points behind a phrase, as drawn (Q30, 0 .. 1 each way, not sorted), and
+    // whether each came from T1: what an editor draws in the attractor's own space.
+    struct RawPoint {
+        std::int64_t x, y;
+        bool         t1;
+    };
+    int attractor(std::int64_t key, std::array<RawPoint, kMaxPoints>& points) const noexcept;
+
 private:
     struct Phrase {
         bool          active   = false;   // has grains to come, or in this block

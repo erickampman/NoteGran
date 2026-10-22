@@ -782,34 +782,42 @@ void testBurst() {
 }
 
 void testEditor() {
-    // Cloud has its editor (embedded only); the others keep the host's generic one for now.
-    Instance r(kCloudId);
-    CHECK(r.ok());
-    if (!r.ok()) return;
-    const auto* gui = static_cast<const clap_plugin_gui_t*>(r.plugin->get_extension(r.plugin, CLAP_EXT_GUI));
-    CHECK(gui != nullptr && r.plugin->get_extension(r.plugin, CLAP_EXT_TIMER_SUPPORT) != nullptr);
-    if (gui == nullptr) return;
+    // Each plugin has its editor (embedded only), at its own design size and shape.
+    struct Design {
+        const char* id;
+        uint32_t    width, height;
+    };
+    for (const Design& d : {Design{kCloudId, 900, 560}, Design{kGridId, 980, 700}, Design{kBurstId, 960, 660},
+                            Design{kChordsId, 920, 600}}) {
+        Instance r(d.id);
+        CHECK(r.ok());
+        if (!r.ok()) continue;
+        const auto* gui = static_cast<const clap_plugin_gui_t*>(r.plugin->get_extension(r.plugin, CLAP_EXT_GUI));
+        CHECK(gui != nullptr && r.plugin->get_extension(r.plugin, CLAP_EXT_TIMER_SUPPORT) != nullptr);
+        if (gui == nullptr) continue;
 #ifdef __APPLE__
-    const char* api = CLAP_WINDOW_API_COCOA;
+        const char* api = CLAP_WINDOW_API_COCOA;
 #else
-    const char* api = CLAP_WINDOW_API_X11;
+        const char* api = CLAP_WINDOW_API_X11;
 #endif
-    const char* preferred = nullptr;
-    bool        floating  = true;
-    CHECK(gui->get_preferred_api(r.plugin, &preferred, &floating) && std::strcmp(preferred, api) == 0 && !floating);
-    CHECK(!gui->is_api_supported(r.plugin, api, true));
-    // Made and sized with no window yet (the host's parent comes later), then destroyed.
-    CHECK(gui->create(r.plugin, api, false));
-    uint32_t w = 0, h = 0;
-    CHECK(gui->get_size(r.plugin, &w, &h) && w == 900 && h == 560);
-    uint32_t aw = 1000, ah = 10;
-    CHECK(gui->adjust_size(r.plugin, &aw, &ah) && aw == 1000 && ah == 622);
-    CHECK(gui->set_size(r.plugin, 1000, 622) && gui->get_size(r.plugin, &w, &h) && w == 1000 && h == 622);
-    gui->destroy(r.plugin);
-
-    for (const char* id : {kChordsId, kGridId, kBurstId}) {
-        Instance o(id);
-        CHECK(o.ok() && o.plugin->get_extension(o.plugin, CLAP_EXT_GUI) == nullptr);
+        const char* preferred = nullptr;
+        bool        floating  = true;
+        CHECK(gui->get_preferred_api(r.plugin, &preferred, &floating) && std::strcmp(preferred, api) == 0 && !floating);
+        CHECK(!gui->is_api_supported(r.plugin, api, true));
+        // Made and sized with no window yet (the host's parent comes later), then destroyed.
+        CHECK(gui->create(r.plugin, api, false));
+        uint32_t w = 0, h = 0;
+        CHECK(gui->get_size(r.plugin, &w, &h) && w == d.width && h == d.height);
+        clap_gui_resize_hints_t hints{};
+        CHECK(gui->get_resize_hints(r.plugin, &hints) && hints.preserve_aspect_ratio &&
+              hints.aspect_ratio_width == d.width && hints.aspect_ratio_height == d.height);
+        uint32_t aw = 1000, ah = 10;
+        const auto expected = static_cast<uint32_t>(std::lround(1000.0 * d.height / d.width));
+        CHECK(gui->adjust_size(r.plugin, &aw, &ah) && aw == 1000 && ah == expected);
+        aw = 100;   // never below 0.8× the design
+        CHECK(gui->adjust_size(r.plugin, &aw, &ah) && aw == d.width * 4 / 5);
+        CHECK(gui->set_size(r.plugin, 1000, expected) && gui->get_size(r.plugin, &w, &h) && w == 1000 && h == expected);
+        gui->destroy(r.plugin);
     }
 }
 

@@ -75,6 +75,13 @@ void GridCore::setParams(const GridParams& params) noexcept {
     applySettings(a);
 }
 
+std::int64_t GridCore::slotAt(std::int64_t beats) const noexcept {
+    const auto num = static_cast<__int128>(std::max<std::int64_t>(params_.rateNum, 1));
+    const auto den = static_cast<__int128>(std::max<std::int64_t>(params_.rateDen, 1)) * kBeat;
+    const __int128 v = static_cast<__int128>(beats) * num;
+    return static_cast<std::int64_t>(v >= 0 ? v / den : -((-v + den - 1) / den));
+}
+
 void GridCore::collectGrains(std::size_t& count) noexcept {
     const Grid g = Grid::perBeat(params_.rateNum, params_.rateDen);
     const auto density = std::clamp<std::int64_t>(params_.density, kOne16, 4 * kOne16);

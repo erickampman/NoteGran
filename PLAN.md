@@ -8,8 +8,8 @@ for the other formats.
 
 **Status (2026-10-22):** phases 1–4 done: Cloud, Chords and Grid are built, pass their tests and
 `clap-validator`, and are heard working in StageHand with KeyboardEDO. Phase 5, Burst, is built and
-tested (2026-10-22), not yet heard. Editors (2026-10-22): the shared shell and Cloud's are built;
-Grid's, Burst's and Chords' next (Editors, below). Then phase 6, Buffer.
+tested (2026-10-22), not yet heard. Editors (2026-10-22): all four are built and draw in StageHand; not
+yet seen with notes playing (Editors, below). Then phase 6, Buffer.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -453,27 +453,48 @@ Every plugin gets its own editor; the generic editors were a stopgap. Decided wi
   editor meet only at `src/plugin_gui.h`. macOS and Linux (X11), embedded windows only.
 - **The house widget kit**, copied from StruckSynth into `src/UI/` (Knob, Dropdown, Toggle, GroupBox,
   PopupMenu, Logo), each change marked "NoteGran:": charcoal panels, stepped knobs, dimmed menus,
-  labels that shrink to fit.
+  labels and menu choices that shrink to fit, boxes that wrap into rows and take wide slots. Plus
+  NoteGran's own compact Slider (the house slider, for tables).
 - **NoteGran's colours:** one charcoal family, an accent per plugin: Cloud steel blue, Chords
   violet, Grid amber, Burst teal.
 - **One shell** (`src/UI/NoteGranUI.cpp`): the header (logo, "NoteGran" and the plugin's name in its
-  accent) and a layout per plugin: groups of slots, each one parameter's control or two swapped by a
-  third (Density / Rate by Sync), and settings unused just now dimmed. Controls are built from the
+  accent) and a layout per plugin, at its own design size: rows by weight of groups and views by
+  cells; groups of slots, each one parameter's control or two swapped by a third (Density / Rate by
+  Sync), wrapping into rows of the group's columns; settings unused just now dimmed ("unless" too:
+  dimmed when a value is one thing). Controls are built from the
   parameters' own descriptions, so ranges, menus and texts are the host's.
 - **Values are polled:** the editor reads every value on its 60 Hz timer and shows what changed, so
   automation and a loaded state need no push. Its edits go through a ring, applied (and sent to the
   host as gestures and values) at the next process() or flush.
 - **Live views:** process() publishes a snapshot under a sequence count (`ng_live_t`): the set's
-  members and the notes it started lately. The editor reads it on its timer.
+  members, the notes it started lately and those sounding, Grid's slot and Chords' scale. The editor
+  reads it on its timer.
+- **Previews:** what the current settings make, asked whenever a value changes (main thread, from
+  preview cores built from the values): Grid's cycle by tier (`ng_grid_cycle`), Burst's attractor and
+  next phrase (`ng_burst_attractor`, `ng_burst_phrase`), Chords' scale and the chord on a degree
+  (`ng_chords_scale`, `ng_chords_preview`).
 - **Only `clap_entry` is exported** (a linker export list), since DGL's libraries don't hide theirs.
 - **Cloud (built):** the live view (the set lit on a keyboard of equal semitones, each grain rising
   from its exact pitch and fading), then Timing, Pick, Pitch, Dynamics and Input. 900 × 560, resizable
   at that ratio from 0.8×. Checked in StageHand: draws, menus and knobs work, Sync swaps Density for
   Rate, Quantize EDO undims EDO and Root. Not yet seen with notes playing.
-- **Next:** Grid (ClockGran's tier table and a strip of one cycle by tier with the playhead), Burst
-  (PMU's DGL scatter editor, `dgl-ui/src/UI/ScatterEditorView.hpp`, drawing the phrase), then Chords
-  (the scale on a circle of N steps; mocked up first). Each plugin offers CLAP's gui extension only
-  once its editor exists, so the others keep the host's generic editor until then.
+- **Grid (built), 980 × 700:** one cycle of its meter over the live keyboard (each slot a bar as tall
+  as its tier is strong and as bright as its Probability, the playhead on the slot now, slots
+  flashing as they play) beside Clock; the tiers' table (a column per tier, named from the meter:
+  Straight's by note value, a grouped meter's by group, then Beats and Off-beats, a tier the meter
+  doesn't use dimmed; rows Probability, Level, Offset, Chaos as sliders and Pick as menus); Pitch and
+  Input.
+- **Burst (built), 960 × 660:** PMU's scatter editor (`ScatterEditorView.hpp`): the real attractor
+  of the next 16 phrases with Vary (the first's larger), each transform's dot and handle dragged as
+  one gesture per field moved, a handle past the plot drawn and grabbed at the edge; beside it the
+  next phrase (time across Duration, pitch about the root, size by Decay, a ghost pass with Loop) over
+  the live keyboard. Then Phrase, Grain, Pitch and Input.
+- **Chords (built), 920 × 600:** the scale on a circle of N steps (the key at the top, degrees
+  numbered, Roman with seven), the notes sounding lit and joined, a degree clicked showing its chord
+  and naming its notes (with cents off 12-EDO); with a scale channel, the scale the playing plugin
+  has. Beside it Chord; then Scale and Output.
+- **Checked in StageHand** (2026-10-22): all four open at their sizes and draw. Not yet seen with
+  notes playing, nor dragged and clicked by hand.
 - Every DGL plugin registers the same Objective-C class names (`DGL_17000604_Pugl…`) as
   StruckSynth's and StageHand's own, as all of the house's DGL code already does.
 

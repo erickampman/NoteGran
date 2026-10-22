@@ -329,9 +329,14 @@ private:
 
 // What's playing, for the editor (ng_live_t, packed as pitch << 16 | velocity): written whole at
 // the end of each process() under a sequence count, read by the editor's timer.
+// Grid's slot is two words, Chords' scale four and then its steps four to a word.
 struct LiveShared {
-    static constexpr std::size_t kMembers = NG_LIVE_MEMBERS, kNotes = NG_LIVE_NOTES;
-    static constexpr std::size_t kWords   = 2 + kMembers + kNotes;   // counts, members, notes
+    static constexpr std::size_t kMembers = NG_LIVE_MEMBERS, kNotes = NG_LIVE_NOTES, kSounding = NG_LIVE_SOUNDING;
+    static constexpr std::size_t kNoteBase     = 2 + kMembers;
+    static constexpr std::size_t kSoundingBase = kNoteBase + kNotes;          // count, then the notes
+    static constexpr std::size_t kSlotBase     = kSoundingBase + 1 + kSounding;
+    static constexpr std::size_t kScaleBase    = kSlotBase + 2;               // edo, origin, key, count
+    static constexpr std::size_t kWords        = kScaleBase + 4 + NG_LIVE_SCALE / 4;
     std::atomic<std::uint32_t> seq{0};
     std::atomic<std::uint32_t> words[kWords]{};
 };
@@ -366,6 +371,15 @@ struct Plugin {
     LiveShared               live;
     std::uint32_t            notesStarted = 0;   // audio thread
     std::array<std::uint32_t, NG_LIVE_NOTES> recentNotes{};
+    struct Sounding {
+        std::uint8_t  group, channel, key;
+        std::uint32_t packed;   // pitch << 16 | velocity
+    };
+    std::array<Sounding, 128> sounding{};          // audio thread: the notes on, from what was sent
+    std::size_t               soundingCount = 0;
+    // The editors' previews (main thread only), from the current values.
+    std::unique_ptr<BurstCore>  previewBurst;
+    std::unique_ptr<ChordsCore> previewChords;
 
     // Per process call, fixed size.
     std::array<InputEvent, kMaxInputs>                   inputs{};
@@ -554,8 +568,18 @@ bool applyGuiEdits(Plugin* p, const clap_output_events_t* out) {
 void publishLive(Plugin* p, const NoteOut& notes) {
     for (std::size_t i = 0; i < notes.size(); ++i) {
         const NoteEvent& e = notes[i];
-        if (!e.on) continue;
-        p->recentNotes[p->notesStarted % NG_LIVE_NOTES] = std::uint32_t{e.pitch79} << 16 | e.velocity;
+        std::size_t      k = 0;
+        while (k < p->soundingCount && (p->sounding[k].group != e.group || p->sounding[k].channel != e.channel ||
+                                        p->sounding[k].key != e.key))
+            ++k;
+        if (!e.on) {
+            if (k < p->soundingCount) p->sounding[k] = p->sounding[--p->soundingCount];
+            continue;
+        }
+        const std::uint32_t packed = std::uint32_t{e.pitch79} << 16 | e.velocity;
+        if (k == p->soundingCount && k < p->sounding.size()) ++p->soundingCount;
+        if (k < p->soundingCount) p->sounding[k] = {e.group, e.channel, e.key, packed};
+        p->recentNotes[p->notesStarted % NG_LIVE_NOTES] = packed;
         ++p->notesStarted;
     }
     LiveShared&         l = p->live;
@@ -573,7 +597,33 @@ void publishLive(Plugin* p, const NoteOut& notes) {
     l.words[0].store(members, std::memory_order_relaxed);
     l.words[1].store(p->notesStarted, std::memory_order_relaxed);
     for (std::size_t i = 0; i < LiveShared::kNotes; ++i)
-        l.words[2 + LiveShared::kMembers + i].store(p->recentNotes[i], std::memory_order_relaxed);
+        l.words[LiveShared::kNoteBase + i].store(p->recentNotes[i], std::memory_order_relaxed);
+    const std::size_t sounding = std::min(p->soundingCount, LiveShared::kSounding);
+    l.words[LiveShared::kSoundingBase].store(static_cast<std::uint32_t>(sounding), std::memory_order_relaxed);
+    for (std::size_t i = 0; i < sounding; ++i)
+        l.words[LiveShared::kSoundingBase + 1 + i].store(p->sounding[i].packed, std::memory_order_relaxed);
+    std::int64_t slot = -1;
+    if (p->grid) {
+        const std::int64_t beats = p->grid->beatPosition();
+        if (beats >= 0) slot = p->grid->slotAt(beats);
+    }
+    l.words[LiveShared::kSlotBase].store(static_cast<std::uint32_t>(static_cast<std::uint64_t>(slot)), std::memory_order_relaxed);
+    l.words[LiveShared::kSlotBase + 1].store(static_cast<std::uint32_t>(static_cast<std::uint64_t>(slot) >> 32),
+                                             std::memory_order_relaxed);
+    if (p->chords) {
+        const EdoScale& sc    = p->chords->scale();
+        const auto      count = static_cast<std::uint32_t>(std::min<std::size_t>(sc.count, NG_LIVE_SCALE));
+        l.words[LiveShared::kScaleBase].store(static_cast<std::uint32_t>(sc.edo), std::memory_order_relaxed);
+        l.words[LiveShared::kScaleBase + 1].store(static_cast<std::uint32_t>(sc.origin), std::memory_order_relaxed);
+        l.words[LiveShared::kScaleBase + 2].store(static_cast<std::uint32_t>(sc.keyStep), std::memory_order_relaxed);
+        l.words[LiveShared::kScaleBase + 3].store(count, std::memory_order_relaxed);
+        for (std::size_t w = 0; w < NG_LIVE_SCALE / 4; ++w) {
+            std::uint32_t packed = 0;
+            for (std::size_t b = 0; b < 4; ++b)
+                if (4 * w + b < count) packed |= (static_cast<std::uint32_t>(sc.steps[4 * w + b]) & 0xFF) << (8 * b);
+            l.words[LiveShared::kScaleBase + 4 + w].store(packed, std::memory_order_relaxed);
+        }
+    }
     l.seq.store(s + 2, std::memory_order_release);
 }
 
@@ -1041,15 +1091,13 @@ void plug_on_timer(const clap_plugin_t* plugin, clap_id timerId) { ng_gui_on_tim
 
 const clap_plugin_timer_support_t kTimerExt = {plug_on_timer};
 
-const void* plug_get_extension(const clap_plugin_t* plugin, const char* id) {
+const void* plug_get_extension(const clap_plugin_t*, const char* id) {
     if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &kAudioPorts;
     if (std::strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &kNotePorts;
     if (std::strcmp(id, CLAP_EXT_PARAMS) == 0) return &kParamsExt;
     if (std::strcmp(id, CLAP_EXT_STATE) == 0) return &kStateExt;
-    // Only Cloud has its editor so far; the others keep the host's generic one until theirs come.
-    const bool editor = self(plugin)->def->which == Which::Cloud;
-    if (editor && std::strcmp(id, CLAP_EXT_GUI) == 0) return ng_gui_extension();
-    if (editor && std::strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) return &kTimerExt;
+    if (std::strcmp(id, CLAP_EXT_GUI) == 0) return ng_gui_extension();
+    if (std::strcmp(id, CLAP_EXT_TIMER_SUPPORT) == 0) return &kTimerExt;
     return nullptr;
 }
 
@@ -1268,10 +1316,103 @@ bool ng_live_read(const clap_plugin_t* plugin, ng_live_t* out) {
         out->memberVelocity[i] = static_cast<std::uint16_t>(w[2 + i]);
     }
     for (std::size_t i = 0; i < NG_LIVE_NOTES; ++i) {
-        out->notePitch[i]    = static_cast<std::uint16_t>(w[2 + NG_LIVE_MEMBERS + i] >> 16);
-        out->noteVelocity[i] = static_cast<std::uint16_t>(w[2 + NG_LIVE_MEMBERS + i]);
+        out->notePitch[i]    = static_cast<std::uint16_t>(w[LiveShared::kNoteBase + i] >> 16);
+        out->noteVelocity[i] = static_cast<std::uint16_t>(w[LiveShared::kNoteBase + i]);
     }
+    out->soundingCount = std::min<std::uint32_t>(w[LiveShared::kSoundingBase], NG_LIVE_SOUNDING);
+    for (std::size_t i = 0; i < NG_LIVE_SOUNDING; ++i) {
+        out->soundingPitch[i]    = static_cast<std::uint16_t>(w[LiveShared::kSoundingBase + 1 + i] >> 16);
+        out->soundingVelocity[i] = static_cast<std::uint16_t>(w[LiveShared::kSoundingBase + 1 + i]);
+    }
+    out->slot = static_cast<std::int64_t>(std::uint64_t{w[LiveShared::kSlotBase]} |
+                                          std::uint64_t{w[LiveShared::kSlotBase + 1]} << 32);
+    out->scaleEdo     = w[LiveShared::kScaleBase];
+    out->scaleOrigin  = w[LiveShared::kScaleBase + 1];
+    out->scaleKeyStep = w[LiveShared::kScaleBase + 2];
+    out->scaleCount   = std::min<std::uint32_t>(w[LiveShared::kScaleBase + 3], NG_LIVE_SCALE);
+    for (std::size_t i = 0; i < NG_LIVE_SCALE; ++i)
+        out->scaleSteps[i] = static_cast<std::uint8_t>(w[LiveShared::kScaleBase + 4 + i / 4] >> (8 * (i % 4)));
     return true;
+}
+
+int ng_grid_cycle(const clap_plugin_t* plugin, int tiers[NG_GRID_CYCLE]) {
+    Plugin* p = self(plugin);
+    if (p->def->which != Which::Grid) return 0;
+    const Meter meter = static_cast<Meter>(std::clamp(intValue(p, kGMeter), 0, 6));
+    const int   n     = std::min(meterCycle(meter), int{NG_GRID_CYCLE});
+    for (int i = 0; i < n; ++i) tiers[i] = tierOf(meter, i);
+    return n;
+}
+
+int ng_burst_attractor(const clap_plugin_t* plugin, int64_t key, float* xs, float* ys, bool* t1) {
+    Plugin* p = self(plugin);
+    if (p->def->which != Which::Burst) return 0;
+    if (!p->previewBurst) p->previewBurst.reset(new (std::nothrow) BurstCore());
+    if (!p->previewBurst) return 0;
+    p->previewBurst->setParams(burstParams(p));
+    std::array<BurstCore::RawPoint, BurstCore::kMaxPoints> raw{};
+    const int n = p->previewBurst->attractor(key, raw);
+    for (int i = 0; i < n; ++i) {
+        xs[i] = static_cast<float>(static_cast<double>(raw[static_cast<std::size_t>(i)].x) / double(1 << 30));
+        ys[i] = static_cast<float>(static_cast<double>(raw[static_cast<std::size_t>(i)].y) / double(1 << 30));
+        t1[i] = raw[static_cast<std::size_t>(i)].t1;
+    }
+    return n;
+}
+
+int ng_burst_phrase(const clap_plugin_t* plugin, int64_t key, float* times, float* offsets) {
+    Plugin* p = self(plugin);
+    if (p->def->which != Which::Burst) return 0;
+    if (!p->previewBurst) p->previewBurst.reset(new (std::nothrow) BurstCore());
+    if (!p->previewBurst) return 0;
+    p->previewBurst->setParams(burstParams(p));
+    std::array<BurstCore::Point, BurstCore::kMaxPoints> pts{};
+    const int n = p->previewBurst->phrasePoints(key, pts);
+    for (int i = 0; i < n; ++i) {
+        times[i]   = static_cast<float>(pts[static_cast<std::size_t>(i)].time / 65536.0);
+        offsets[i] = static_cast<float>(pts[static_cast<std::size_t>(i)].offset / 512.0);
+    }
+    return n;
+}
+
+bool ng_chords_scale(const clap_plugin_t* plugin, uint32_t* edo, uint32_t* origin, uint32_t* keyStep, uint32_t* count,
+                     uint8_t steps[NG_LIVE_SCALE]) {
+    Plugin* p = self(plugin);
+    if (p->def->which != Which::Chords) return false;
+    const ChordsParams params = chordsParams(p);
+    if (params.scaleChannel >= 0) return false;
+    if (!p->previewChords) p->previewChords.reset(new (std::nothrow) ChordsCore());
+    if (!p->previewChords) return false;
+    p->previewChords->setParams(params);
+    const EdoScale& sc = p->previewChords->scale();
+    *edo     = static_cast<uint32_t>(sc.edo);
+    *origin  = static_cast<uint32_t>(sc.origin);
+    *keyStep = static_cast<uint32_t>(sc.keyStep);
+    *count   = static_cast<uint32_t>(std::min<std::size_t>(sc.count, NG_LIVE_SCALE));
+    for (std::size_t i = 0; i < *count; ++i) steps[i] = static_cast<uint8_t>(sc.steps[i]);
+    return true;
+}
+
+int ng_chords_preview(const clap_plugin_t* plugin, int degree, int32_t* pitches) {
+    Plugin* p = self(plugin);
+    if (p->def->which != Which::Chords) return 0;
+    const ChordsParams params = chordsParams(p);
+    if (params.scaleChannel >= 0) return 0;
+    if (!p->previewChords) p->previewChords.reset(new (std::nothrow) ChordsCore());
+    if (!p->previewChords) return 0;
+    p->previewChords->setParams(params);
+    const EdoScale& sc = p->previewChords->scale();
+    if (sc.count == 0 || degree < 0 || degree >= static_cast<int>(sc.count)) return 0;
+    // A note on that degree, as the input would play it: its 12-EDO key, or its EDO step.
+    std::int32_t pitch = 0;
+    if (params.input == InputMatch::Familiar && sc.familiar())
+        pitch = (60 + sc.keyPitchClass + sc.semitones[static_cast<std::size_t>(degree)]) * kSemitone;
+    else
+        pitch = sc.pitchOfStep(5 * std::int64_t{sc.edo} + sc.keyStep + sc.steps[static_cast<std::size_t>(degree)]);
+    std::array<std::int32_t, ChordsCore::kMaxSize> chord{};
+    const std::size_t n = p->previewChords->chordFor(pitch, chord);
+    for (std::size_t i = 0; i < n; ++i) pitches[i] = chord[i];
+    return static_cast<int>(n);
 }
 
 } // extern "C"

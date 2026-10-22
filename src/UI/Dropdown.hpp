@@ -45,8 +45,10 @@ public:
         fUiScale = s;
         fBoxH   = static_cast<int>(26 * s);
         fInset  = static_cast<int>(5 * s);   // small gap so the box nearly fills its cell
-        fLabelH = static_cast<int>(16 * s);
+        fLabelH = fCompact ? 0 : static_cast<int>(16 * s);
     }
+    // NoteGran: no caption band, for a table's cells (the row and column name it).
+    void setCompact(bool c) { fCompact = c; setUiScale(fUiScale); }
 
     int index() const { return fIndex; }
     const std::vector<std::string>& choices() const { return fChoices; }
@@ -66,7 +68,7 @@ protected:
         const float w  = getWidth();
         const float bx = fInset, bw = w - 2 * fInset, by = boxTop(), bh = fBoxH;
 
-        if (fHasFont)
+        if (fHasFont && !fLabel.empty())   // NoteGran: a compact menu has none
         {
             // Label sits in the reserved band above the box (always inside bounds).
             fontFace(NANOVG_DEJAVU_SANS_TTF);
@@ -83,7 +85,13 @@ protected:
         if (fHasFont && fIndex >= 0 && fIndex < static_cast<int>(fChoices.size()))
         {
             textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+            // NoteGran: a choice wider than the box (beside its chevron) shrinks to fit.
             fontSize(13.0f * fUiScale);
+            Rectangle<float> tb;
+            textBounds(0, 0, fChoices[fIndex].c_str(), nullptr, tb);
+            const float room = bw - 7.0f - 20.0f;
+            if (tb.getWidth() > room && tb.getWidth() > 0.0f)
+                fontSize(std::fmax(13.0f * fUiScale * 0.6f, 13.0f * fUiScale * room / tb.getWidth()));
             fillColor(fEnabled ? Color(226, 230, 236) : Color(110, 115, 122));
             text(bx + 7.0f, by + bh * 0.5f, fChoices[fIndex].c_str(), nullptr);
         }
@@ -130,6 +138,7 @@ private:
     std::vector<std::string> fChoices;
     int                      fIndex = 0;
     bool                     fHasFont = false;
+    bool                     fCompact = false;   // NoteGran
     float                    fUiScale = 1.0f;
 
     int fBoxH = 26, fInset = 12, fLabelH = 16;

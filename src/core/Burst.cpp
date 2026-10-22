@@ -45,20 +45,28 @@ bool BurstCore::busy() const noexcept {
     return false;
 }
 
-int BurstCore::phrasePoints(std::int64_t key, std::array<Point, kMaxPoints>& points) const noexcept {
+int BurstCore::attractor(std::int64_t key, std::array<RawPoint, kMaxPoints>& points) const noexcept {
     const int          n    = std::clamp(params_.count, 1, kMaxPoints);
     const std::int64_t prob = std::int64_t{std::clamp(params_.probability, 0, kOne16)} << 16;
     std::int64_t       x = kOne30 / 2, y = kOne30 / 2;
-    std::array<std::int64_t, kMaxPoints> xs{}, ys{};
     for (int i = 0; i < kWarmup + n; ++i) {
-        const Map&         m  = maps_[random_.chance(prob, Stream::Timing, key, static_cast<std::uint32_t>(i)) ? 0 : 1];
+        const bool         t1 = random_.chance(prob, Stream::Timing, key, static_cast<std::uint32_t>(i));
+        const Map&         m  = maps_[t1 ? 0 : 1];
         const std::int64_t dx = x - m.fx, dy = y - m.fy;
         x = std::clamp(m.fx + ((m.a * dx - m.b * dy) >> 30), std::int64_t{0}, kOne30);
         y = std::clamp(m.fy + ((m.b * dx + m.a * dy) >> 30), std::int64_t{0}, kOne30);
-        if (i >= kWarmup) {
-            xs[static_cast<std::size_t>(i - kWarmup)] = x;
-            ys[static_cast<std::size_t>(i - kWarmup)] = y;
-        }
+        if (i >= kWarmup) points[static_cast<std::size_t>(i - kWarmup)] = RawPoint{x, y, t1};
+    }
+    return n;
+}
+
+int BurstCore::phrasePoints(std::int64_t key, std::array<Point, kMaxPoints>& points) const noexcept {
+    std::array<RawPoint, kMaxPoints> raw{};
+    const int                        n = attractor(key, raw);
+    std::array<std::int64_t, kMaxPoints> xs{}, ys{};
+    for (int i = 0; i < n; ++i) {
+        xs[static_cast<std::size_t>(i)] = raw[static_cast<std::size_t>(i)].x;
+        ys[static_cast<std::size_t>(i)] = raw[static_cast<std::size_t>(i)].y;
     }
     std::array<int, kMaxPoints> order{};
     for (int i = 0; i < n; ++i) order[static_cast<std::size_t>(i)] = i;
