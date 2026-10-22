@@ -295,13 +295,13 @@ std::vector<Event> run(Instance& r, Input& first, int64_t until, uint32_t frames
 void testDescriptor() {
     CHECK(gFactory->get_plugin_count(gFactory) == 4);
     const clap_plugin_descriptor_t* b = gFactory->get_plugin_descriptor(gFactory, 3);
-    CHECK(b != nullptr && std::strcmp(b->id, kBurstId) == 0 && std::strcmp(b->name, "NoteGran Burst") == 0);
+    CHECK(b != nullptr && std::strcmp(b->id, kBurstId) == 0 && std::strcmp(b->name, "Burst") == 0);
     const clap_plugin_descriptor_t* g = gFactory->get_plugin_descriptor(gFactory, 2);
-    CHECK(g != nullptr && std::strcmp(g->id, kGridId) == 0 && std::strcmp(g->name, "NoteGran Grid") == 0);
+    CHECK(g != nullptr && std::strcmp(g->id, kGridId) == 0 && std::strcmp(g->name, "Grid") == 0);
     const clap_plugin_descriptor_t* c = gFactory->get_plugin_descriptor(gFactory, 1);
-    CHECK(c != nullptr && std::strcmp(c->id, kChordsId) == 0 && std::strcmp(c->name, "NoteGran Chords") == 0);
+    CHECK(c != nullptr && std::strcmp(c->id, kChordsId) == 0 && std::strcmp(c->name, "Chords") == 0);
     const clap_plugin_descriptor_t* d = gFactory->get_plugin_descriptor(gFactory, 0);
-    CHECK(d != nullptr && std::strcmp(d->id, kCloudId) == 0 && std::strcmp(d->name, "NoteGran Cloud") == 0);
+    CHECK(d != nullptr && std::strcmp(d->id, kCloudId) == 0 && std::strcmp(d->name, "Cloud") == 0);
     bool noteEffect = false;
     for (const char* const* f = d->features; *f != nullptr; ++f)
         noteEffect |= std::strcmp(*f, CLAP_PLUGIN_FEATURE_NOTE_EFFECT) == 0;
