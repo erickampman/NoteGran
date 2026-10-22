@@ -18,7 +18,9 @@ the built `.clap`).
 
 No JACK, ALSA, CoreAudio or CoreMIDI is needed: NoteGran builds uw-core with `UW_CORE_UMP_ONLY`,
 which makes only `uw::ump`. The editors use DPF (`external/dpf`) for drawing only: DGL, NanoVG and
-pugl, as StruckSynth does. Python 3 embeds the logo at build time.
+pugl, as StruckSynth does. DPF is the author's fork (`erickampman/DPF`, which pins the pugl fork
+`erickampman/pugl` with PMU's macOS patches), as every DPF user's is (UmpireDAW's
+`docs/decisions.md`, "DPF fork"); both are private, so cloning needs access to them. Python 3 embeds the logo at build time.
 
 ## Get the source
 
@@ -30,8 +32,15 @@ git submodule update --init --recursive
 
 `--recursive` matters: DPF has pugl as a submodule of its own.
 
-After a `git pull` that moves a submodule pin, run `git submodule update` (or pull with
-`--recurse-submodules`).
+After a `git pull` that moves a submodule pin, adds a submodule, or changes a submodule's URL, run
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+A plain `git pull --recurse-submodules` moves pins but neither fetches a new submodule nor follows a
+changed URL (as when DPF moved from upstream to the fork, 2026-10-22).
 
 ## Build and test
 

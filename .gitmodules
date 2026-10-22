@@ -6,4 +6,4 @@
 	url = https://github.com/erickampman/uw-core.git
 [submodule "external/dpf"]
 	path = external/dpf
-	url = https://github.com/DISTRHO/DPF
+	url = https://github.com/erickampman/DPF.git

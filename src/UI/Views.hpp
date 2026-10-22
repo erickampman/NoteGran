@@ -123,7 +123,7 @@ protected:
             }
             if (k % 12 == 0 && fHasFont)
             {
-                char name[8];
+                char name[16];
                 std::snprintf(name, sizeof(name), "C%d", k / 12 - 1);
                 fontFace(NANOVG_DEJAVU_SANS_TTF);
                 fontSize(std::min(10.0f * s, keyW * 1.6f));
@@ -251,7 +251,7 @@ protected:
             }
             if (fHasFont)
             {
-                char label[4];
+                char label[16];
                 std::snprintf(label, sizeof(label), "%d", t + 1);
                 fontFace(NANOVG_DEJAVU_SANS_TTF);
                 fontSize(std::min(10.0f * s, cw * 0.9f));
