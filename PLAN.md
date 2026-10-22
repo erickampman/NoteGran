@@ -6,9 +6,8 @@ track) makes the sound; NoteGran makes no audio. CLAP-first, with the same layou
 hand-written raw CLAP entry point over a pure C++ core, and the vendored free-audio **clap-wrapper**
 for the other formats.
 
-**Status (2026-10-21):** phase 1 (the core) is done; phase 2 is built and passes its tests and
-`clap-validator`: `NoteGran.clap` with NoteGran Cloud. Heard working in StageHand with KeyboardEDO
-as the controller (2026-10-21); Bitwig not tried yet.
+**Status (2026-10-21):** phases 1 and 2 done (Cloud heard in StageHand with KeyboardEDO); phase 3,
+NoteGran Chords, is built and passes its tests and `clap-validator`, not yet heard.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -308,6 +307,15 @@ Long wanted on its own (2026-10-21); it fits here because a chord is just a set.
 - **The chord** stacks degrees from there: `Size` (1 to 6 notes), `Stack` (every 2nd degree for
   thirds, 3rd for fourths, 4th for fifths), `Inversion`, `Voicing` (Close | Open | Drop-2 | Spread) and
   `Octave`. Size 1 is a scale quantizer.
+- `Inversion` (Root, 1st .. 5th; asked for 2026-10-21) is the inversion every chord gets: that many of
+  its lowest notes an octave up. Later, an `Inversion: Nearest` that picks each chord's inversion to
+  lie closest to the last one (voice leading).
+- **As built (2026-10-21):** Voicing after the inversion: Open raises the 2nd, 4th and 6th notes from
+  the bottom an octave, Drop-2 lowers the second-highest, Spread raises note i by i / 2 octaves. A
+  note past MIDI's range is left out. A scale channel's scale is latched (it stays when let go, until
+  a new note there starts the next); with nothing there yet, every note passes. With a scale channel,
+  Input is EDO (there are no familiar degrees). A chorded note's per-note messages are dropped; a
+  passed note's pass. 16 parameters; state header `NoteGran Chords 1`.
 - **MIDI 1.0 can't carry a microtone.** A chord in an EDO other than 12 from a MIDI 1.0 note would be
   rounded back to 12-EDO keys. So Chords sends a chord note with a fraction as MIDI 2.0 (the host
   translates down for a synth that takes only MIDI 1.0), the one exception to "output in its note's
@@ -487,6 +495,9 @@ position, turning each `NoteEvent` into its own events.
    StageHand: a one-slot sequence → Cloud → StruckSynth, and KeyboardEDO → Cloud in 31-EDO. And in
    Bitwig (MIDI 1.0 there).
 3. **NoteGran Chords,** with the generic editor and the scale from a channel. Then Chords → Cloud.
+   Built 2026-10-21 (`src/core/Scales`, `src/core/Chords`; the plugin table in `src/plugin.cpp`),
+   tested in the core and through the .clap, `clap-validator` clean. To hear: C lydian dominant in
+   19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud.
 4. **NoteGran Grid.**
 5. **NoteGran Burst.**
 6. **NoteGran Buffer.** Note mode first, then Fragment.

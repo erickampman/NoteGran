@@ -49,14 +49,6 @@ struct CloudParams {
     std::uint64_t seed        = 1;             // the plugin layer picks one when Seed is 0
 };
 
-// One input message, in time order, and whether it goes out unchanged (set by process()).
-struct CloudInput {
-    std::int64_t    time    = 0;                 // absolute sample
-    uw::MidiMessage message;
-    Dialect         dialect = Dialect::Midi2;    // Clap for a CLAP note, converted to MIDI 2.0
-    bool            pass    = false;             // out: Other always; set notes with Dry; Reset
-};
-
 class CloudCore {
 public:
     static constexpr std::size_t kMaxGrainsPerBlock = 1024;
@@ -67,7 +59,7 @@ public:
 
     // One block [start, start + frames): reads `inputs` (sorted by time, all in the block), writes
     // note starts and ends to `out`, sets each input's `pass`. Ends due in the block are sent.
-    void process(std::int64_t start, std::int64_t frames, const Transport* transport, CloudInput* inputs,
+    void process(std::int64_t start, std::int64_t frames, const Transport* transport, InputEvent* inputs,
                  std::size_t inputCount, NoteOut& out) noexcept;
 
     // Ends every note at `time` and clears the set: reset(), deactivating, a bypass.

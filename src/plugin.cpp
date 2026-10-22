@@ -1,13 +1,15 @@
 // src/plugin.cpp — NoteGran: the CLAP plugins around the core. One .clap whose factory lists one
-// plugin per job (PLAN.md, "The plugins"); NoteGran Cloud is the first. A note effect: one note
+// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud and NoteGran Chords. Each has its own
+// parameter table, state header and core; the events, dialects, block splitting and state code are
+// shared. A note effect: one note
 // input and one note output port, CLAP | MIDI | MIDI2, preferring MIDI2 (as Retune). Hand-written
 // CLAP entry point, as Retune and the synths.
 //
-// - Inputs go to CloudCore as UMP: MIDI 2.0 as it is, MIDI 1.0 wrapped as MT 0x2, CLAP notes as
+// - Inputs go to the core as UMP: MIDI 2.0 as it is, MIDI 1.0 wrapped as MT 0x2, CLAP notes as
 //   MIDI 2.0 notes tagged Dialect::Clap (a tuning expression as Pitch 7.25, so the set follows it).
-//   CloudCore marks each input to pass through or not; system MIDI and SysEx always pass.
+//   The core marks each input to pass through or not; system MIDI and SysEx always pass.
 // - Grains leave in the dialect of the note they came from (PLAN.md, "Ports and dialects").
-// - A parameter or transport event splits the block at its sample: CloudCore gives the same notes
+// - A parameter or transport event splits the block at its sample: the cores give the same notes
 //   for any block sizes, so this makes automation sample-accurate for nothing.
 // - Time is the plugin's own running sample count, so the core sees an absolute clock.
 // - reset() can't send events, so the notes still sounding then (or at deactivate) are ended at
@@ -22,9 +24,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <random>
 #include <string>
 
+#include "core/Chords.h"
 #include "core/Cloud.h"
 #include "core/Shape.h"
 #include "uw/ump/Ump.h"
@@ -61,6 +65,8 @@ const char* const kRootLabels[]     = {"C", "C#", "D", "D#", "E", "F", "F#", "G"
 const char* const kWhenFullLabels[] = {"Skip", "Steal"};
 const char* const kOffOnLabels[]    = {"Off", "On"};
 
+// --- NoteGran Cloud ---
+
 // Rate (Beats): grains per beat, as num / den.
 constexpr std::int64_t kRateNum[] = {1, 1, 1, 2, 3, 4, 6, 8};
 constexpr std::int64_t kRateDen[] = {4, 2, 1, 1, 1, 1, 1, 1};
@@ -71,7 +77,7 @@ enum ParamId : std::uint32_t {
     kWhenFull, kDry, kHoldOver, kSetChannel, kTriggerChannel, kLatch, kSeed,
 };
 
-constexpr ParamSpec kParams[] = {
+constexpr ParamSpec kCloudParams[] = {
     {"Sync", "sync", 0, 1, 0, Kind::Menu, kSyncLabels, ""},
     {"Density", "density", 0.1, 200, 8, Kind::Number, nullptr, "/s"},
     {"Rate", "rate", 0, 7, 5, Kind::Menu, kRateLabels, ""},
@@ -98,10 +104,66 @@ constexpr ParamSpec kParams[] = {
     {"Latch", "latch", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
     {"Seed", "seed", 0, 9999, 0, Kind::Stepped, nullptr, ""},                      // 0: new each start
 };
-constexpr std::uint32_t kParamCount = sizeof(kParams) / sizeof(kParams[0]);
 
-double clampParam(std::uint32_t id, double value) {
-    const ParamSpec& s = kParams[id];
+// --- NoteGran Chords ---
+
+const char* const kKeyLabels[]       = {"Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C",
+                                        "G",  "D",  "A",  "E",  "B",  "F#", "C#"};   // fifths -7 .. 7
+const char* const kMapLabels[]       = {"By fifths", "Nearest"};
+const char* const kInputLabels[]     = {"Familiar", "EDO"};
+const char* const kStackLabels[]     = {"Thirds", "Fourths", "Fifths"};
+const char* const kInversionLabels[] = {"Root", "1st", "2nd", "3rd", "4th", "5th"};
+const char* const kVoicingLabels[]   = {"Close", "Open", "Drop-2", "Spread"};
+const char* const kOffScaleLabels[]  = {"Pass", "Nearest", "Drop"};
+
+// The familiar scales' names, from the core's table.
+const std::array<const char*, 64> kScaleLabels = [] {
+    std::array<const char*, 64> labels{};
+    for (std::size_t i = 0; i < familiarScaleCount() && i < labels.size(); ++i) labels[i] = familiarScales()[i].name;
+    return labels;
+}();
+
+enum ChordsParamId : std::uint32_t {
+    kScale, kKey, kMap, kEdoSteps, kOrigin, kInput, kScaleChannel, kSize, kStack, kInversion, kVoicing,
+    kOctave, kOffScale, kChordLevel, kChordVoices, kChordWhenFull,
+};
+
+const ParamSpec kChordsParams[] = {
+    {"Scale", "scale", 0, double(familiarScaleCount() - 1), 0, Kind::Menu, kScaleLabels.data(), ""},
+    {"Key", "key", 0, 14, 7, Kind::Menu, kKeyLabels, ""},
+    {"Map", "map", 0, 1, 0, Kind::Menu, kMapLabels, ""},
+    {"EDO", "edo", 1, 96, 12, Kind::Stepped, nullptr, ""},
+    {"Origin", "origin", 0, 11, 9, Kind::Menu, kRootLabels, ""},
+    {"Input", "input", 0, 1, 0, Kind::Menu, kInputLabels, ""},
+    {"Scale channel", "scale_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},   // 0: the menu's scale
+    {"Size", "size", 1, 6, 3, Kind::Stepped, nullptr, ""},
+    {"Stack", "stack", 0, 2, 0, Kind::Menu, kStackLabels, ""},
+    {"Inversion", "inversion", 0, 5, 0, Kind::Menu, kInversionLabels, ""},
+    {"Voicing", "voicing", 0, 3, 0, Kind::Menu, kVoicingLabels, ""},
+    {"Octave", "octave", -2, 2, 0, Kind::Stepped, nullptr, ""},
+    {"Off-scale", "off_scale", 0, 2, 0, Kind::Menu, kOffScaleLabels, ""},
+    {"Level", "level", 0, 2, 1, Kind::Number, nullptr, ""},
+    {"Voices", "voices", 1, 32, 8, Kind::Stepped, nullptr, ""},
+    {"When full", "when_full", 0, 1, 0, Kind::Menu, kWhenFullLabels, ""},
+};
+
+// --- the plugins ---
+
+enum class Which : std::uint8_t { Cloud, Chords };
+
+struct PluginDef {
+    const clap_plugin_descriptor_t* desc;
+    Which                           which;
+    const ParamSpec*                params;
+    std::uint32_t                   count;
+    const char*                     stateHeader;   // then the version, then "symbol value" lines
+};
+
+constexpr std::uint32_t kMaxParams = 32;
+
+double clampParam(const PluginDef& def, std::uint32_t id, double value) {
+    const ParamSpec& s = def.params[id];
+
     if (!std::isfinite(value)) value = s.def;
     if (s.kind != Kind::Number) value = std::round(value);
     return std::clamp(value, s.min, s.max);
@@ -122,19 +184,21 @@ struct Pending {
 struct Plugin {
     clap_plugin_t      clap{};
     const clap_host_t* host = nullptr;
+    const PluginDef*   def  = nullptr;
 
     // Parameter values: written by process/flush and by state_load; read by the main thread.
-    std::atomic<double> values[kParamCount];
+    std::atomic<double> values[kMaxParams];
     std::atomic<bool>   valuesChangedByState{false};   // state_load → process: re-apply
 
-    CloudCore     core;
+    std::unique_ptr<CloudCore>  cloud;    // the one this plugin is
+    std::unique_ptr<ChordsCore> chords;
     std::uint64_t startSeed = 1;       // Seed 0: chosen at activate
     std::int64_t  now       = 0;       // absolute sample count at the block's start
     bool          endAll    = false;   // reset / reactivation: end what's sounding first
     std::string   scratch;
 
     // Per process call, fixed size.
-    std::array<CloudInput, kMaxInputs>                   inputs{};
+    std::array<InputEvent, kMaxInputs>                   inputs{};
     std::array<const clap_event_header_t*, kMaxInputs>   inputEvents{};
     std::array<NoteEvent, kMaxOutputs>                   notes{};
     std::array<Pending, kMaxOutputs>                     passed{};
@@ -147,7 +211,7 @@ Plugin* self(const clap_plugin_t* plugin) { return static_cast<Plugin*>(plugin->
 double value(const Plugin* p, std::uint32_t id) { return p->values[id].load(std::memory_order_relaxed); }
 int    intValue(const Plugin* p, std::uint32_t id) { return static_cast<int>(std::lround(value(p, id))); }
 
-CloudParams currentParams(const Plugin* p) {
+CloudParams cloudParams(const Plugin* p) {
     CloudParams c;
     c.sync             = intValue(p, kSync) == 1 ? Clock::Mode::Beats : Clock::Mode::Free;
     c.density          = value(p, kDensity);
@@ -180,11 +244,35 @@ CloudParams currentParams(const Plugin* p) {
     return c;
 }
 
-void applyParams(Plugin* p) { p->core.setParams(currentParams(p)); }
+ChordsParams chordsParams(const Plugin* p) {
+    ChordsParams c;
+    c.scale        = static_cast<std::size_t>(std::max(intValue(p, kScale), 0));
+    c.keyFifths    = intValue(p, kKey) - 7;
+    c.map          = intValue(p, kMap) == 1 ? MapBy::Nearest : MapBy::Fifths;
+    c.edo          = intValue(p, kEdoSteps);
+    c.origin       = intValue(p, kOrigin);
+    c.input        = intValue(p, kInput) == 1 ? InputMatch::Edo : InputMatch::Familiar;
+    c.scaleChannel = intValue(p, kScaleChannel) - 1;   // 0 (the menu) becomes -1
+    c.size         = intValue(p, kSize);
+    c.stack        = intValue(p, kStack) + 2;
+    c.inversion    = intValue(p, kInversion);
+    c.voicing      = static_cast<Voicing>(std::clamp(intValue(p, kVoicing), 0, 3));
+    c.octave       = intValue(p, kOctave);
+    c.offScale     = static_cast<OffScale>(std::clamp(intValue(p, kOffScale), 0, 2));
+    c.level        = toQ16(value(p, kChordLevel));
+    c.voices       = intValue(p, kChordVoices);
+    c.whenFull     = intValue(p, kChordWhenFull) == 1 ? WhenFull::Steal : WhenFull::Skip;
+    return c;
+}
+
+void applyParams(Plugin* p) {
+    if (p->cloud) p->cloud->setParams(cloudParams(p));
+    if (p->chords) p->chords->setParams(chordsParams(p));
+}
 
 void storeParam(Plugin* p, const clap_event_param_value_t* ev) {
-    if (ev->param_id >= kParamCount) return;
-    p->values[ev->param_id].store(clampParam(ev->param_id, ev->value), std::memory_order_relaxed);
+    if (ev->param_id >= p->def->count) return;
+    p->values[ev->param_id].store(clampParam(*p->def, ev->param_id, ev->value), std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -341,7 +429,7 @@ bool plug_activate(const clap_plugin_t* plugin, double sampleRate, std::uint32_t
     // Seed 0: a new seed each start (main thread, so random_device is fine here).
     std::random_device device;
     p->startSeed = (std::uint64_t{device()} << 32 | device()) | 1;
-    p->core.setSampleRate(sampleRate);
+    if (p->cloud) p->cloud->setSampleRate(sampleRate);
     applyParams(p);
     p->valuesChangedByState.store(false, std::memory_order_relaxed);
     p->endAll = true;   // anything left from before ends first
@@ -365,7 +453,8 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
     NoteOut     notes(p->notes.data(), p->notes.size());
     std::size_t passed = 0;
     if (p->endAll) {
-        p->core.reset(blockStart, notes);
+        if (p->cloud) p->cloud->reset(blockStart, notes);
+        if (p->chords) p->chords->reset(blockStart, notes);
         p->endAll = false;
     }
 
@@ -375,7 +464,9 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
     auto runUntil = [&](std::int64_t until) {
         if (until <= from) return;
         NoteOut rest(p->notes.data() + notes.size(), p->notes.size() - notes.size());
-        p->core.process(from, until - from, p->hasTransport ? &p->transport : nullptr, p->inputs.data(), inputs, rest);
+        if (p->cloud)
+            p->cloud->process(from, until - from, p->hasTransport ? &p->transport : nullptr, p->inputs.data(), inputs, rest);
+        if (p->chords) p->chords->process(p->inputs.data(), inputs, rest);
         for (std::size_t i = 0; i < rest.size(); ++i) notes.push(rest[i]);
         for (std::size_t i = 0; i < inputs; ++i)
             if (p->inputs[i].pass && passed < p->passed.size())
@@ -416,7 +507,7 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
             continue;
         }
         if (inputs == p->inputs.size()) runUntil(t);
-        p->inputs[inputs]      = CloudInput{t, m, d, false};
+        p->inputs[inputs]      = InputEvent{t, m, d, false};
         p->inputEvents[inputs] = h;
         ++inputs;
     }
@@ -445,7 +536,8 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
             pushNote(notes[b++], offset, process->out_events);
         }
     }
-    return p->core.busy() ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
+    const bool busy = (p->cloud && p->cloud->busy()) || (p->chords && p->chords->busy());
+    return busy ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
 }
 
 void plug_on_main_thread(const clap_plugin_t*) {}
@@ -480,11 +572,12 @@ const clap_plugin_note_ports_t kNotePorts = {note_ports_count, note_ports_get};
 // params extension
 // ---------------------------------------------------------------------------------------------
 
-std::uint32_t params_count(const clap_plugin_t*) { return kParamCount; }
+std::uint32_t params_count(const clap_plugin_t* plugin) { return self(plugin)->def->count; }
 
-bool params_get_info(const clap_plugin_t*, std::uint32_t index, clap_param_info_t* info) {
-    if (index >= kParamCount) return false;
-    const ParamSpec& s = kParams[index];
+bool params_get_info(const clap_plugin_t* plugin, std::uint32_t index, clap_param_info_t* info) {
+    const PluginDef& def = *self(plugin)->def;
+    if (index >= def.count) return false;
+    const ParamSpec& s = def.params[index];
     std::memset(info, 0, sizeof(*info));
     info->id    = index;
     info->flags = CLAP_PARAM_IS_AUTOMATABLE;
@@ -498,28 +591,40 @@ bool params_get_info(const clap_plugin_t*, std::uint32_t index, clap_param_info_
 }
 
 bool params_get_value(const clap_plugin_t* plugin, clap_id id, double* out) {
-    if (id >= kParamCount) return false;
+    if (id >= self(plugin)->def->count) return false;
     *out = value(self(plugin), id);
     return true;
 }
 
-bool params_value_to_text(const clap_plugin_t*, clap_id id, double v, char* out, std::uint32_t size) {
-    if (id >= kParamCount) return false;
-    const ParamSpec& s = kParams[id];
-    v = clampParam(id, v);
+// A stepped parameter's word for its 0, if it has one.
+const char* zeroText(const PluginDef& def, clap_id id) {
+    if (def.which == Which::Cloud) {
+        if (id == kSetChannel) return "All";
+        if (id == kTriggerChannel) return "None";
+        if (id == kSeed) return "New each start";
+    } else if (id == kScaleChannel) {
+        return "None";
+    }
+    return nullptr;
+}
+
+bool params_value_to_text(const clap_plugin_t* plugin, clap_id id, double v, char* out, std::uint32_t size) {
+    const PluginDef& def = *self(plugin)->def;
+    if (id >= def.count) return false;
+    const ParamSpec& s = def.params[id];
+    v = clampParam(def, id, v);
     const int step = static_cast<int>(v);
     if (s.kind == Kind::Menu) std::snprintf(out, size, "%s", s.labels[step - static_cast<int>(s.min)]);
-    else if (id == kSetChannel && step == 0) std::snprintf(out, size, "All");
-    else if (id == kTriggerChannel && step == 0) std::snprintf(out, size, "None");
-    else if (id == kSeed && step == 0) std::snprintf(out, size, "New each start");
+    else if (step == 0 && zeroText(def, id) != nullptr) std::snprintf(out, size, "%s", zeroText(def, id));
     else if (s.kind == Kind::Stepped) std::snprintf(out, size, "%d", step);
     else std::snprintf(out, size, *s.unit ? "%.3g %s" : "%.3g", v, s.unit);
     return true;
 }
 
-bool params_text_to_value(const clap_plugin_t*, clap_id id, const char* text, double* out) {
-    if (id >= kParamCount) return false;
-    const ParamSpec& s = kParams[id];
+bool params_text_to_value(const clap_plugin_t* plugin, clap_id id, const char* text, double* out) {
+    const PluginDef& def = *self(plugin)->def;
+    if (id >= def.count) return false;
+    const ParamSpec& s = def.params[id];
     if (s.kind == Kind::Menu) {
         for (int i = 0; i <= static_cast<int>(s.max - s.min); ++i)
             if (std::strcmp(text, s.labels[i]) == 0) {
@@ -527,15 +632,14 @@ bool params_text_to_value(const clap_plugin_t*, clap_id id, const char* text, do
                 return true;
             }
     }
-    if ((id == kSetChannel && std::strcmp(text, "All") == 0) || (id == kTriggerChannel && std::strcmp(text, "None") == 0) ||
-        (id == kSeed && std::strcmp(text, "New each start") == 0)) {
+    if (zeroText(def, id) != nullptr && std::strcmp(text, zeroText(def, id)) == 0) {
         *out = 0;
         return true;
     }
     char*        end = nullptr;
     const double v   = std::strtod(text, &end);
     if (end == text) return false;
-    *out = clampParam(id, v);
+    *out = clampParam(def, id, v);
     return true;
 }
 
@@ -555,17 +659,16 @@ const clap_plugin_params_t kParamsExt = {params_count,         params_get_info, 
                                          params_value_to_text, params_text_to_value, params_flush};
 
 // ---------------------------------------------------------------------------------------------
-// state extension: "NoteGran Cloud 1" then "<symbol> <value>" lines; unknown symbols are ignored
+// state extension: "NoteGran Cloud 1" (or Chords) then "<symbol> <value>" lines; unknown symbols
+// are ignored
 // ---------------------------------------------------------------------------------------------
-
-constexpr const char* kStateHeader = "NoteGran Cloud ";
 
 bool state_save(const clap_plugin_t* plugin, const clap_ostream_t* stream) {
     Plugin* p  = self(plugin);
-    p->scratch = std::string(kStateHeader) + "1\n";
+    p->scratch = std::string(p->def->stateHeader) + "1\n";
     char line[96];
-    for (std::uint32_t i = 0; i < kParamCount; ++i) {
-        std::snprintf(line, sizeof(line), "%s %.17g\n", kParams[i].symbol, value(p, i));
+    for (std::uint32_t i = 0; i < p->def->count; ++i) {
+        std::snprintf(line, sizeof(line), "%s %.17g\n", p->def->params[i].symbol, value(p, i));
         p->scratch += line;
     }
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(p->scratch.data());
@@ -587,7 +690,7 @@ bool state_load(const clap_plugin_t* plugin, const clap_istream_t* stream) {
         if (read == 0) break;
         text.append(buffer, static_cast<std::size_t>(read));
     }
-    if (text.rfind(kStateHeader, 0) != 0) return false;   // empty, or not ours
+    if (text.rfind(p->def->stateHeader, 0) != 0) return false;   // empty, or not ours
 
     std::size_t pos = text.find('\n');
     while (pos != std::string::npos && pos + 1 < text.size()) {
@@ -596,9 +699,10 @@ bool state_load(const clap_plugin_t* plugin, const clap_istream_t* stream) {
         const std::string line  = text.substr(start, pos == std::string::npos ? std::string::npos : pos - start);
         const std::size_t space = line.find(' ');
         if (space == std::string::npos) continue;
-        for (std::uint32_t i = 0; i < kParamCount; ++i)
-            if (line.compare(0, space, kParams[i].symbol) == 0 && space == std::strlen(kParams[i].symbol))
-                p->values[i].store(clampParam(i, std::strtod(line.c_str() + space + 1, nullptr)),
+        const PluginDef& def = *p->def;
+        for (std::uint32_t i = 0; i < def.count; ++i)
+            if (line.compare(0, space, def.params[i].symbol) == 0 && space == std::strlen(def.params[i].symbol))
+                p->values[i].store(clampParam(def, i, std::strtod(line.c_str() + space + 1, nullptr)),
                                    std::memory_order_relaxed);
     }
     p->valuesChangedByState.store(true, std::memory_order_release);
@@ -638,20 +742,47 @@ const clap_plugin_descriptor_t kCloud = {
     .features     = kFeatures,
 };
 
-// One per plugin; the next ones (Chords, Grid, Burst, Buffer) are appended.
-const clap_plugin_descriptor_t* const kDescriptors[] = {&kCloud};
-constexpr std::uint32_t kDescriptorCount = sizeof(kDescriptors) / sizeof(kDescriptors[0]);
+const clap_plugin_descriptor_t kChords = {
+    .clap_version = CLAP_VERSION_INIT,
+    .id           = "com.unlikelyware.notegran.chords",
+    .name         = "NoteGran Chords",
+    .vendor       = "Unlikelyware",
+    .url          = "https://unlikelyware.com",
+    .manual_url   = "",
+    .support_url  = "",
+    .version      = NOTEGRAN_VERSION_STRING,
+    .description  = "Each note held becomes a chord in a scale; a familiar scale can be mapped into any "
+                    "equal division of the octave. Notes off the scale pass through.",
+    .features     = kFeatures,
+};
+
+// One per plugin, in the factory's order; the next ones (Grid, Burst, Buffer) are appended.
+const PluginDef kPlugins[] = {
+    {&kCloud, Which::Cloud, kCloudParams, sizeof(kCloudParams) / sizeof(kCloudParams[0]), "NoteGran Cloud "},
+    {&kChords, Which::Chords, kChordsParams, sizeof(kChordsParams) / sizeof(kChordsParams[0]), "NoteGran Chords "},
+};
+constexpr std::uint32_t kPluginCount = sizeof(kPlugins) / sizeof(kPlugins[0]);
 
 const clap_plugin_t* factory_create(const clap_plugin_factory_t*, const clap_host_t* host, const char* id) {
-    if (std::strcmp(id, kCloud.id) != 0) return nullptr;
+    const PluginDef* def = nullptr;
+    for (const PluginDef& d : kPlugins)
+        if (std::strcmp(id, d.desc->id) == 0) def = &d;
+    if (def == nullptr || def->count > kMaxParams) return nullptr;
     auto* p = new (std::nothrow) Plugin();
     if (p == nullptr) return nullptr;
     p->host = host;
-    for (std::uint32_t i = 0; i < kParamCount; ++i) p->values[i].store(kParams[i].def, std::memory_order_relaxed);
-    p->core.setSampleRate(48000.0);
+    p->def  = def;
+    if (def->which == Which::Cloud) p->cloud.reset(new (std::nothrow) CloudCore());
+    else p->chords.reset(new (std::nothrow) ChordsCore());
+    if (!p->cloud && !p->chords) {
+        delete p;
+        return nullptr;
+    }
+    for (std::uint32_t i = 0; i < def->count; ++i) p->values[i].store(def->params[i].def, std::memory_order_relaxed);
+    if (p->cloud) p->cloud->setSampleRate(48000.0);
     applyParams(p);
     p->clap = clap_plugin_t{
-        .desc             = &kCloud,
+        .desc             = def->desc,
         .plugin_data      = p,
         .init             = plug_init,
         .destroy          = plug_destroy,
@@ -667,10 +798,10 @@ const clap_plugin_t* factory_create(const clap_plugin_factory_t*, const clap_hos
     return &p->clap;
 }
 
-std::uint32_t factory_count(const clap_plugin_factory_t*) { return kDescriptorCount; }
+std::uint32_t factory_count(const clap_plugin_factory_t*) { return kPluginCount; }
 
 const clap_plugin_descriptor_t* factory_get(const clap_plugin_factory_t*, std::uint32_t index) {
-    return index < kDescriptorCount ? kDescriptors[index] : nullptr;
+    return index < kPluginCount ? kPlugins[index].desc : nullptr;
 }
 
 const clap_plugin_factory_t kFactory = {factory_count, factory_get, factory_create};

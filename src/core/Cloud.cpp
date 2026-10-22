@@ -30,7 +30,7 @@ void CloudCore::reset(std::int64_t time, NoteOut& out) noexcept {
     hasLast_ = false;
 }
 
-void CloudCore::process(std::int64_t start, std::int64_t frames, const Transport* transport, CloudInput* inputs,
+void CloudCore::process(std::int64_t start, std::int64_t frames, const Transport* transport, InputEvent* inputs,
                         std::size_t inputCount, NoteOut& out) noexcept {
     if (clock_.begin(start, frames, transport).stopped) reset(start, out);
 
@@ -43,7 +43,7 @@ void CloudCore::process(std::int64_t start, std::int64_t frames, const Transport
         for (; next < grains && grains_[next].time < before; ++next) play(grains_[next], out);
     };
     for (std::size_t i = 0; i < inputCount; ++i) {
-        CloudInput& in = inputs[i];
+        InputEvent& in = inputs[i];
         playUntil(in.time);
         const Heard h = set_.input(in.time, in.message, in.dialect);
         switch (h.kind) {

@@ -31,13 +31,18 @@ int failures = 0;
         }                                                                                 \
     } while (0)
 
-constexpr const char* kCloudId = "com.unlikelyware.notegran.cloud";
+constexpr const char* kCloudId  = "com.unlikelyware.notegran.cloud";
+constexpr const char* kChordsId = "com.unlikelyware.notegran.chords";
 
 // Parameter ids (PLAN.md; plugin.cpp's ParamId).
 enum : clap_id {
     pSync, pDensity, pRate, pLengthMs, pLengthBeats, pOnsetRandom, pPick, pWeight, pOctaves,
     pTranspose, pScatter, pQuantize, pEdo, pRoot, pLevel, pVelSpread, pLenSpread, pVoices,
     pWhenFull, pDry, pHoldOver, pSetChannel, pTriggerChannel, pLatch, pSeed, pCount
+};
+enum : clap_id {
+    cScale, cKey, cMap, cEdo, cOrigin, cInput, cScaleChannel, cSize, cStack, cInversion, cVoicing, cOctave,
+    cOffScale, cLevel, cVoices, cWhenFull, cCount
 };
 
 // --- host ------------------------------------------------------------------------------------
@@ -197,8 +202,8 @@ struct Instance {
     int64_t                         now       = 0;   // the host's sample count
     clap_process_status             lastStatus = CLAP_PROCESS_CONTINUE;
 
-    Instance() {
-        plugin = gFactory->create_plugin(gFactory, &kHost, kCloudId);
+    explicit Instance(const char* id = kCloudId) {
+        plugin = gFactory->create_plugin(gFactory, &kHost, id);
         if (plugin == nullptr || !plugin->init(plugin)) return;
         params    = static_cast<const clap_plugin_params_t*>(plugin->get_extension(plugin, CLAP_EXT_PARAMS));
         state     = static_cast<const clap_plugin_state_t*>(plugin->get_extension(plugin, CLAP_EXT_STATE));
@@ -286,7 +291,9 @@ std::vector<Event> run(Instance& r, Input& first, int64_t until, uint32_t frames
 // --- tests -----------------------------------------------------------------------------------
 
 void testDescriptor() {
-    CHECK(gFactory->get_plugin_count(gFactory) == 1);
+    CHECK(gFactory->get_plugin_count(gFactory) == 2);
+    const clap_plugin_descriptor_t* c = gFactory->get_plugin_descriptor(gFactory, 1);
+    CHECK(c != nullptr && std::strcmp(c->id, kChordsId) == 0 && std::strcmp(c->name, "NoteGran Chords") == 0);
     const clap_plugin_descriptor_t* d = gFactory->get_plugin_descriptor(gFactory, 0);
     CHECK(d != nullptr && std::strcmp(d->id, kCloudId) == 0 && std::strcmp(d->name, "NoteGran Cloud") == 0);
     bool noteEffect = false;
@@ -592,6 +599,84 @@ void testState() {
     CHECK(!b.state->load(b.plugin, &badStream));
 }
 
+void testChords() {
+    Instance r(kChordsId);
+    CHECK(r.ok());
+    if (!r.ok()) return;
+    CHECK(r.params->count(r.plugin) == cCount);
+    char text[64];
+    CHECK(r.params->value_to_text(r.plugin, cKey, 7, text, sizeof(text)) && std::strcmp(text, "C") == 0);
+    CHECK(r.params->value_to_text(r.plugin, cScale, 10, text, sizeof(text)) && std::strcmp(text, "Lydian dominant") == 0);
+    CHECK(r.params->value_to_text(r.plugin, cInversion, 1, text, sizeof(text)) && std::strcmp(text, "1st") == 0);
+    CHECK(r.params->value_to_text(r.plugin, cScaleChannel, 0, text, sizeof(text)) && std::strcmp(text, "None") == 0);
+    CHECK(r.params->value_to_text(r.plugin, cOrigin, 9, text, sizeof(text)) && std::strcmp(text, "A") == 0);
+    double v = -1;
+    CHECK(r.params->text_to_value(r.plugin, cScale, "Lydian dominant", &v) && v == 10);
+
+    // Defaults: C major in 12-EDO, triads. MIDI 1.0 C gives C E G in MIDI 1.0; C# passes; a CC passes.
+    Input in;
+    in.midi1(0, 0x90, 60, 100);
+    in.midi1(5, 0x90, 61, 90);
+    in.midi1(7, 0xB0, 1, 64);
+    in.midi1(100, 0x80, 60, 0);
+    in.midi1(110, 0x80, 61, 0);
+    auto out = r.process(in, 512);
+    CHECK(out.size() == 9);
+    if (out.size() == 9) {
+        CHECK(isMidi1NoteOn(out[0]) && out[0].bytes[1] == 60 && out[0].bytes[2] == 100);
+        CHECK(isMidi1NoteOn(out[1]) && out[1].bytes[1] == 64 && isMidi1NoteOn(out[2]) && out[2].bytes[1] == 67);
+        CHECK(out[3].time == 5 && out[3].bytes[1] == 61 && out[3].bytes[2] == 90);   // passed, as played
+        CHECK(out[4].time == 7 && out[4].bytes[0] == 0xB0);
+        for (int i = 5; i < 8; ++i) CHECK(out[i].time == 100 && (out[i].bytes[0] & 0xF0) == 0x80);
+        CHECK(out[8].time == 110 && out[8].bytes[1] == 61 && (out[8].bytes[0] & 0xF0) == 0x80);
+    }
+    CHECK(r.lastStatus == CLAP_PROCESS_SLEEP);
+
+    // C lydian dominant in 19-EDO from C: MIDI 1.0 D in, MIDI 2.0 D major out, on 19-EDO steps.
+    r.set(cScale, 10);
+    r.set(cEdo, 19);
+    r.set(cOrigin, 0);
+    Input d;
+    d.midi1(0, 0x90, 62, 100);
+    out = r.process(d, 512);
+    CHECK(out.size() == 3);
+    const uint32_t steps[] = {5 * 19 + 3, 5 * 19 + 9, 5 * 19 + 14};
+    for (size_t i = 0; i < out.size() && i < 3; ++i) {
+        CHECK(isMidi2NoteOn(out[i]));
+        const uint32_t pitch = (steps[i] * 6144 * 2 + 19) / (2 * 19);
+        CHECK((out[i].words[1] & 0xFFFF) == pitch && (out[i].words[0] & 0xFF) == 3);
+    }
+    Input dOff;
+    dOff.midi1(0, 0x80, 62, 0);
+    out = r.process(dOff, 512);
+    CHECK(out.size() == 3 && out[0].type == CLAP_EVENT_MIDI2 && (out[0].words[0] >> 20) == 0x408);
+
+    // CLAP notes keep the CLAP dialect: C (the key, on its own pitch) needs no tuning; E and G are
+    // 19-EDO's, 21 and 5 cents under 12-EDO's.
+    Input c;
+    c.note(CLAP_EVENT_NOTE_ON, 0, 0, 60);
+    out = r.process(c, 512);
+    CHECK(out.size() == 5);
+    if (out.size() == 5) {
+        CHECK(out[0].type == CLAP_EVENT_NOTE_ON && out[0].key == 60);
+        CHECK(out[1].type == CLAP_EVENT_NOTE_ON && out[1].key == 64);
+        CHECK(out[2].type == CLAP_EVENT_NOTE_EXPRESSION && out[2].expressionId == CLAP_NOTE_EXPRESSION_TUNING &&
+              out[2].key == 64 && std::fabs(out[2].value - (379.0 - 400.0) / 100.0) < 0.005);
+        CHECK(out[3].type == CLAP_EVENT_NOTE_ON && out[3].key == 67);
+        CHECK(out[4].type == CLAP_EVENT_NOTE_EXPRESSION && std::fabs(out[4].value + 0.053) < 0.005);
+    }
+
+    // State: its own header.
+    Sink                 sink;
+    const clap_ostream_t os = {&sink, Sink::write};
+    CHECK(r.state->save(r.plugin, &os));
+    CHECK(sink.text.rfind("NoteGran Chords 1\n", 0) == 0 && sink.text.find("edo 19\n") != std::string::npos);
+    Instance             cloud;
+    Source               source{sink.text};
+    const clap_istream_t is = {&source, Source::read};
+    CHECK(!cloud.state->load(cloud.plugin, &is));   // a Chords state isn't a Cloud's
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -614,6 +699,7 @@ int main(int argc, char** argv) {
     testTransport();
     testResetAndSleep();
     testState();
+    testChords();
     gEntry->deinit();
     if (failures != 0) {
         std::fprintf(stderr, "NoteGran CLAP: %d check(s) failed\n", failures);

@@ -6,16 +6,19 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "core/Chords.h"
 #include "core/Clock.h"
 #include "core/Cloud.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
 #include "core/Pitch.h"
 #include "core/Random.h"
+#include "core/Scales.h"
 #include "core/Shape.h"
 #include "uw/ump/Ump.h"
 
@@ -1159,8 +1162,8 @@ struct CloudRun {
     std::vector<bool>      passed;   // per input
 };
 
-CloudInput input(std::int64_t time, const uw::MidiMessage& m, Dialect d = Dialect::Midi2) {
-    CloudInput in;
+InputEvent input(std::int64_t time, const uw::MidiMessage& m, Dialect d = Dialect::Midi2) {
+    InputEvent in;
     in.time    = time;
     in.message = m;
     in.dialect = uw::ump::messageType(m) == uw::ump::MessageType::Midi1ChannelVoice ? Dialect::Midi1 : d;
@@ -1169,7 +1172,7 @@ CloudInput input(std::int64_t time, const uw::MidiMessage& m, Dialect d = Dialec
 
 // Runs a Cloud over [0, length) in blocks of random sizes (or one block), feeding each block its
 // inputs, and collects everything it sends.
-CloudRun runCloud(const CloudParams& params, std::vector<CloudInput> inputs, std::int64_t length, bool oneBlock,
+CloudRun runCloud(const CloudParams& params, std::vector<InputEvent> inputs, std::int64_t length, bool oneBlock,
                   const TransportFn& transport = nullptr, std::uint32_t sizesSeed = 777) {
     auto core = std::make_unique<CloudCore>();
     core->setSampleRate(48000.0);
@@ -1193,7 +1196,7 @@ CloudRun runCloud(const CloudParams& params, std::vector<CloudInput> inputs, std
         }
         start += frames;
     }
-    for (const CloudInput& i : inputs) run.passed.push_back(i.pass);
+    for (const InputEvent& i : inputs) run.passed.push_back(i.pass);
     return run;
 }
 
@@ -1250,7 +1253,7 @@ CloudParams arp(Pick pick) {
 
 void testCloudArpeggio() {
     // Played in E, C, G order.
-    const std::vector<CloudInput> chord = {input(0, on1(64)), input(0, on1(60)), input(0, on1(67))};
+    const std::vector<InputEvent> chord = {input(0, on1(64)), input(0, on1(60)), input(0, on1(67))};
     struct Case { Pick pick; std::vector<int> keys; };
     const Case cases[] = {
         {Pick::Up, {60, 64, 67, 60, 64, 67, 60, 64}},
@@ -1272,14 +1275,14 @@ void testCloudArpeggio() {
     }
 
     // The ordered picks keep their place when the set changes: after 64, with 62 added, 67 is next.
-    std::vector<CloudInput> changing = chord;
+    std::vector<InputEvent> changing = chord;
     changing.push_back(input(9000, on1(62)));
     const auto on = ons(runCloud(arp(Pick::Up), changing, 30000, false).events);
     CHECK(on.size() == 5 && on[0].key == 60 && on[1].key == 64 && on[2].key == 67 && on[3].key == 60 &&
           on[4].key == 62);
 }
 
-std::vector<CloudInput> busyInput() {
+std::vector<InputEvent> busyInput() {
     // A changing set, MIDI 2.0 with fractions, a per-note bend and a release.
     return {input(0, on2(60, 0x9000, st(60.25))),
             input(0, on2(63, 0x5000, st(63.4))),
@@ -1342,7 +1345,7 @@ void testCloudOnsets() {
     p.density  = 20.0;              // a slot every 2400 samples
     p.lengthMs = 1.0;
     p.voices   = 32;
-    const std::vector<CloudInput> held = {input(0, on1(60))};
+    const std::vector<InputEvent> held = {input(0, on1(60))};
 
     // Onset random 0: exactly on the grid.
     auto on = ons(runCloud(p, held, 48000, false).events);
@@ -1476,6 +1479,265 @@ void testCloudVoices() {
     }
 }
 
+
+// --- scales -------------------------------------------------------------------------------
+
+const FamiliarScale& scaleNamed(const char* name) {
+    for (std::size_t i = 0; i < familiarScaleCount(); ++i)
+        if (std::string(familiarScales()[i].name) == name) return familiarScales()[i];
+    std::fprintf(stderr, "no scale %s\n", name);
+    return familiarScales()[0];
+}
+
+std::size_t scaleIndex(const char* name) { return static_cast<std::size_t>(&scaleNamed(name) - familiarScales()); }
+
+std::vector<int> stepsOf(const EdoScale& s) {
+    return std::vector<int>(s.steps.begin(), s.steps.begin() + static_cast<std::ptrdiff_t>(s.count));
+}
+
+void testScales() {
+    // Every familiar scale starts on its key and ascends in 12-EDO, with no degree twice.
+    for (std::size_t i = 0; i < familiarScaleCount(); ++i) {
+        const FamiliarScale& f = familiarScales()[i];
+        CHECK(f.count >= 5 && f.fifths[0] == 0);
+        int last = -1;
+        for (std::uint8_t d = 0; d < f.count; ++d) {
+            const int semis = ((f.fifths[d] * 7) % 12 + 12) % 12;
+            CHECK(semis > last);
+            last = semis;
+        }
+    }
+    CHECK(familiarScaleCount() == 25);
+
+    CHECK(edoFifth(12) == 7 && edoFifth(19) == 11 && edoFifth(31) == 18 && edoFifth(22) == 13);
+    CHECK(edoFifth(17) == 10 && edoFifth(24) == 14 && edoFifth(5) == 3 && edoFifth(7) == 4);
+    CHECK(fifthsOfPitchClass(9) == 3 && fifthsOfPitchClass(6) == 6 && fifthsOfPitchClass(10) == -2);
+    CHECK(fifthsOfPitchClass(0) == 0 && fifthsOfPitchClass(1) == -5);
+
+    const FamiliarScale& lydDom = scaleNamed("Lydian dominant");
+    // 12-EDO: the familiar steps either way.
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Major (Ionian)"), 0, 12, 0, MapBy::Fifths)) ==
+          std::vector<int>({0, 2, 4, 5, 7, 9, 11}));
+    CHECK(stepsOf(mapFamiliar(lydDom, 0, 12, 0, MapBy::Nearest)) == std::vector<int>({0, 2, 4, 6, 7, 9, 10}));
+
+    // 19-EDO, by fifths: 0 3 6 9 11 14 16 (PLAN.md's table); nearest ties F# up to 10.
+    EdoScale s = mapFamiliar(lydDom, 0, 19, 0, MapBy::Fifths);
+    CHECK(stepsOf(s) == std::vector<int>({0, 3, 6, 9, 11, 14, 16}) && s.keyStep == 0 && s.keyPitchClass == 0);
+    CHECK(stepsOf(mapFamiliar(lydDom, 0, 19, 0, MapBy::Nearest)) == std::vector<int>({0, 3, 6, 10, 11, 14, 16}));
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Locrian"), 0, 19, 0, MapBy::Nearest))[4] == 9);   // Gb ties down
+
+    // From an A origin, C is 5 steps of 19 up (316 cents), not 300.
+    s = mapFamiliar(lydDom, 0, 19, 9, MapBy::Fifths);
+    CHECK(s.keyStep == 5 && s.origin == 9);
+    CHECK(s.pitchOfStep(5) == st(9) + 1617);
+    CHECK(s.pitchOfStep(-19) == st(9) - kOctave);
+    CHECK(s.stepNear(st(9) + 1617) == 5 && s.stepNear(st(12)) == 5 && s.stepNear(st(9) - 10) == 0);
+    CHECK(s.degreeOfStep(5) == 0 && s.degreeOfStep(5 + 3 + 19) == 1 && s.degreeOfStep(6) == -1);
+    CHECK(s.degreeOfSemitone(62) == 1 && s.degreeOfSemitone(66) == 3 && s.degreeOfSemitone(61) == -1);
+    CHECK(s.stepOfDegree(7, 5) == 5 + 19 && s.stepOfDegree(-1, 5) == 5 + 16 - 19);
+
+    // 22-EDO: by fifths E is 8 steps (436 cents, superpyth), nearest 7.
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Major (Ionian)"), 0, 22, 0, MapBy::Fifths))[2] == 8);
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Major (Ionian)"), 0, 22, 0, MapBy::Nearest))[2] == 7);
+
+    // 5-EDO: major's seven degrees merge into five steps.
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Major (Ionian)"), 0, 5, 0, MapBy::Fifths)) ==
+          std::vector<int>({0, 1, 2, 3, 4}));
+
+    // A key: G major in 12-EDO from C.
+    s = mapFamiliar(scaleNamed("Major (Ionian)"), 1, 12, 0, MapBy::Fifths);
+    CHECK(s.keyStep == 7 && s.keyPitchClass == 7 && s.degreeOfSemitone(66) == 6 && s.degreeOfSemitone(65) == -1);
+
+    // From steps: pitch classes, sorted, distinct.
+    const std::int64_t played[] = {24, 19 + 3, 3, -13};
+    s = scaleFromSteps(played, 4, 19, 9);
+    CHECK(stepsOf(s) == std::vector<int>({3, 5, 6}) && !s.familiar());
+}
+
+// --- Chords -------------------------------------------------------------------------------
+
+std::vector<int> keysOf(const std::array<std::int32_t, ChordsCore::kMaxSize>& p, std::size_t n) {
+    std::vector<int> v;
+    for (std::size_t i = 0; i < n; ++i) v.push_back(p[i] % 512 == 0 ? p[i] / 512 : -1);
+    return v;
+}
+
+std::vector<int> chordKeys(const ChordsCore& c, int key) {
+    std::array<std::int32_t, ChordsCore::kMaxSize> p{};
+    return keysOf(p, c.chordFor(st(key), p));
+}
+
+void testChordsShapes() {
+    ChordsCore   c;
+    ChordsParams p;   // C major, 12-EDO, triads
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({60, 64, 67}));
+    CHECK(chordKeys(c, 62) == std::vector<int>({62, 65, 69}));
+    CHECK(chordKeys(c, 71) == std::vector<int>({71, 74, 77}));
+    CHECK(chordKeys(c, 61).empty());                         // off the scale
+    p.size = 4;
+    c.setParams(p);
+    CHECK(chordKeys(c, 67) == std::vector<int>({67, 71, 74, 77}));
+    p.voicing = Voicing::Drop2;
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({55, 60, 64, 71}));
+    p.voicing = Voicing::Open;
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({60, 67, 76, 83}));
+    p.voicing = Voicing::Spread;
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({60, 64, 79, 83}));
+    p.voicing   = Voicing::Close;
+    p.size      = 3;
+    p.inversion = 1;
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({64, 67, 72}));
+    p.inversion = 2;
+    p.octave    = -1;
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({55, 60, 64}));
+    p           = ChordsParams{};
+    p.stack     = 3;                                         // fourths
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({60, 65, 71}));
+    p.stack = 2;
+    p.size  = 1;                                             // a scale quantizer
+    p.offScale = OffScale::Nearest;
+    c.setParams(p);
+    CHECK(chordKeys(c, 61) == std::vector<int>({60}));       // down first
+    CHECK(chordKeys(c, 66) == std::vector<int>({65}));
+    p.offScale = OffScale::Drop;
+    c.setParams(p);
+    CHECK(chordKeys(c, 61).empty());
+    // G mixolydian, a key on the chain of fifths.
+    p          = ChordsParams{};
+    p.scale    = scaleIndex("Mixolydian");
+    p.keyFifths = 1;
+    c.setParams(p);
+    CHECK(chordKeys(c, 67) == std::vector<int>({67, 71, 74}));
+    CHECK(chordKeys(c, 65) == std::vector<int>({65, 69, 72}));
+    CHECK(chordKeys(c, 66).empty());
+}
+
+void testChordsMicrotonal() {
+    // C lydian dominant in 19-EDO from C: played D gets the D major chord on 19-EDO steps 3, 9, 14.
+    ChordsCore   c;
+    ChordsParams p;
+    p.scale  = scaleIndex("Lydian dominant");
+    p.edo    = 19;
+    p.origin = 0;
+    c.setParams(p);
+    const EdoScale& s = c.scale();
+    std::array<std::int32_t, ChordsCore::kMaxSize> got{};
+    std::size_t n = c.chordFor(st(62), got);
+    CHECK(n == 3 && got[0] == s.pitchOfStep(5 * 19 + 3) && got[1] == s.pitchOfStep(5 * 19 + 9) &&
+          got[2] == s.pitchOfStep(5 * 19 + 14));
+    CHECK(got[0] == 31690);                                  // D, 10.5 cents under 12-EDO's
+    n = c.chordFor(st(64), got);                             // E: diminished, 5 + 5 steps
+    CHECK(n == 3 && got[1] - got[0] == s.pitchOfStep(5) - s.pitchOfStep(0) &&
+          got[2] - got[1] == s.pitchOfStep(5) - s.pitchOfStep(0));
+    CHECK(c.chordFor(st(61), got) == 0);                     // C#: off, passes
+
+    // From an A origin, the same chord, on the A grid (C is 316 cents above A).
+    p.origin = 9;
+    c.setParams(p);
+    n = c.chordFor(st(60), got);
+    CHECK(n == 3 && got[0] == st(57) + 1617);
+
+    // Input EDO: KeyboardEDO's pitches. A step of the scale gets its chord; a step between doesn't.
+    p.input = InputMatch::Edo;
+    c.setParams(p);
+    const std::int32_t d = c.scale().pitchOfStep(5 * 19 + 5 + 3);   // D, from the A origin
+    n = c.chordFor(d, got);
+    CHECK(n == 3 && got[0] == d);
+    CHECK(c.chordFor(c.scale().pitchOfStep(5 * 19 + 5 + 4), got) == 0);
+    // A 12-EDO D (200 cents) is near enough to step 3: in.
+    CHECK(c.chordFor(st(62), got) == 3);
+}
+
+std::vector<NoteEvent> chordsRun(ChordsCore& c, std::vector<InputEvent>& in) {
+    std::vector<NoteEvent> buffer(256);
+    NoteOut                out(buffer.data(), buffer.size());
+    c.process(in.data(), in.size(), out);
+    return std::vector<NoteEvent>(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(out.size()));
+}
+
+void testChordsPlaying() {
+    ChordsCore   c;
+    ChordsParams p;
+    p.voices = 32;
+    c.setParams(p);
+    // C and E held: E's chord (E G B) shares E and G with C's; only B is struck.
+    std::vector<InputEvent> in = {input(0, on1(60)), input(10, on1(64)), input(20, m1(0xB, 0, 7, 9)), input(30, on1(61))};
+    auto out = chordsRun(c, in);
+    CHECK(out.size() == 4 && isOn(out[0], 0, 60) && isOn(out[1], 0, 64) && isOn(out[2], 0, 67) && isOn(out[3], 10, 71));
+    CHECK(out.size() == 4 && out[0].dialect == Dialect::Midi1);
+    CHECK(!in[0].pass && !in[1].pass && in[2].pass && in[3].pass);   // C# off the scale: through
+
+    // Settings change while held: the chords already made stay as they were.
+    p.size = 4;
+    c.setParams(p);
+    in  = {input(40, off1(60)), input(50, off1(61)), input(60, off1(64))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 4 && isOff(out[0], 40, 60));                 // C's own note only
+    CHECK(out.size() == 4 && isOff(out[1], 60, 64) && isOff(out[2], 60, 67) && isOff(out[3], 60, 71));
+    CHECK(!in[0].pass && in[1].pass && !in[2].pass);
+    CHECK(!c.busy());
+
+    // 19-EDO from a MIDI 1.0 note: microtonal, so MIDI 2.0.
+    ChordsParams q;
+    q.edo    = 19;
+    q.origin = 0;
+    c.setParams(q);
+    in  = {input(0, on1(62))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3);
+    for (const NoteEvent& e : out) CHECK(e.dialect == Dialect::Midi2 && e.pitch79 % 512 != 0);
+
+    // Re-struck while held: the old chord ends first.
+    in  = {input(100, on1(62))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 6 && !out[0].on && !out[1].on && !out[2].on && out[3].on);
+
+    // All Notes Off ends it and passes.
+    in  = {input(200, m1(0xB, 0, 123, 0))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && in[0].pass && !c.busy());
+
+    // Voices: a six-note chord at 4 voices, Skip, plays 4.
+    ChordsParams v;
+    v.size   = 6;
+    v.voices = 4;
+    c.setParams(v);
+    in  = {input(0, on1(60))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 4);
+}
+
+void testChordsScaleChannel() {
+    // The scale played on channel 16 (index 15): C E G as the scale, then chords on channel 1.
+    ChordsCore   c;
+    ChordsParams p;
+    p.scaleChannel = 15;
+    p.input        = InputMatch::Edo;
+    p.origin       = 0;
+    p.voices       = 32;
+    c.setParams(p);
+    std::vector<InputEvent> in = {input(0, on1(60, 100, 15)), input(0, on1(64, 100, 15)), input(0, on1(67, 100, 15)),
+                                  input(10, off1(60, 15)),    input(10, off1(64, 15)),    input(10, off1(67, 15)),
+                                  input(20, on1(64))};
+    auto out = chordsRun(c, in);
+    for (std::size_t i = 0; i < 6; ++i) CHECK(!in[i].pass);
+    CHECK(stepsOf(c.scale()) == std::vector<int>({0, 4, 7}));   // latched after release
+    // Every other degree of C E G from E: E, C, G.
+    CHECK(out.size() == 3 && out[0].key == 64 && out[1].key == 72 && out[2].key == 79);
+    // Nothing on the scale channel yet: every note passes.
+    ChordsCore e;
+    e.setParams(p);
+    in = {input(0, on1(60))};
+    CHECK(chordsRun(e, in).empty() && in[0].pass);
+}
+
 } // namespace
 
 int main() {
@@ -1519,6 +1781,11 @@ int main() {
     testCloudDialects();
     testCloudEnds();
     testCloudVoices();
+    testScales();
+    testChordsShapes();
+    testChordsMicrotonal();
+    testChordsPlaying();
+    testChordsScaleChannel();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

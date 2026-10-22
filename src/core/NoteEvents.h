@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "uw/ump/MidiMessage.h"
+
 // What the core sends: note starts and ends, in absolute sample time, before they're written as
 // UMP or CLAP events. The plugin layer turns each into the dialect it names, at the offset of
 // `time` in its block (PLAN.md, "Ports and dialects").
@@ -24,6 +26,14 @@ struct NoteEvent {
     Dialect       dialect  = Dialect::Midi2;
     std::uint16_t pitch79  = 0;      // note-on: the pitch in 1/512 semitone; note-off: key << 9
     std::uint16_t velocity = 0;      // note-on: 16-bit; note-off: 0
+};
+
+// One input message, in time order, and whether it goes out unchanged (set by the core).
+struct InputEvent {
+    std::int64_t    time    = 0;                 // absolute sample
+    uw::MidiMessage message;
+    Dialect         dialect = Dialect::Midi2;    // Clap for a CLAP note, converted to MIDI 2.0
+    bool            pass    = false;             // out: whether it goes out unchanged
 };
 
 // A caller's output buffer: fixed capacity, never grows. Whatever pushes into it checks room()
