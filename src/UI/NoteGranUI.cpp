@@ -62,12 +62,14 @@ namespace {
 
 // --- the look ----------------------------------------------------------------------------------
 
-// One family, an accent per plugin: Cloud steel blue, Chords violet, Grid amber, Burst teal.
+// One family, an accent per plugin: Cloud steel blue, Chords violet, Grid amber, Burst teal, Buffer
+// rose.
 Color accentFor(int kind) {
     switch (kind) {
     case NG_CHORDS: return Color(170, 140, 220);
     case NG_GRID: return Color(220, 170, 90);
     case NG_BURST: return Color(90, 195, 190);
+    case NG_BUFFER: return Color(220, 125, 150);
     default: return Color(130, 170, 220);
     }
 }
@@ -76,6 +78,7 @@ const char* nameFor(int kind) {
     case NG_CHORDS: return "Chords";
     case NG_GRID: return "Grid";
     case NG_BURST: return "Burst";
+    case NG_BUFFER: return "Buffer";
     default: return "Cloud";
     }
 }
@@ -144,6 +147,11 @@ enum : uint32_t {
     bLength, bLengthBeats, bLevel, bDecay, bVelSpread, bLenSpread, bTranspose, bQuantize, bEdo, bRoot,
     bVoices, bWhenFull, bDry, bHoldOver, bSetChannel, bTriggerChannel, bLatch, bSeed,
 };
+enum : uint32_t {
+    uSync, uWindow, uWindowBeats, uFreeze, uPosition, uScan, uSpray, uDensity, uRate, uOnsetRandom, uGrain,
+    uLength, uLengthBeats, uLengthFrom, uOctaves, uTranspose, uScatter, uQuantize, uEdo, uRoot, uLevel, uVelSpread,
+    uLenSpread, uGate, uVoices, uWhenFull, uDry, uHoldOver, uSetChannel, uTriggerChannel, uLatch, uSeed,
+};
 
 Layout cloudLayout() {
     Layout l;
@@ -198,6 +206,25 @@ Layout burstLayout() {
     return l;
 }
 
+// Buffer: the live keyboard beside the capture's settings; the grains' timing, pitch and input.
+Layout bufferLayout() {
+    Layout l;
+    l.width = 940, l.height = 600;
+    l.groups = {
+        {"Capture", {{uSync}, {uWindow, uWindowBeats, uSync}, {uFreeze}, {uPosition}, {uScan}, {uSpray}}, 3},
+        {"Grain", {{uGrain}, {uDensity, uRate, uSync}, {uOnsetRandom}, {uLength, uLengthBeats, uSync}, {uLengthFrom}, {uGate}}},
+        {"Pitch", {{uOctaves}, {uTranspose}, {uScatter}, {uQuantize}, {uEdo}, {uRoot}}},
+        {"Dynamics", {{uLevel}, {uVelSpread}, {uLenSpread}}},
+        {"Input", {{uVoices}, {uWhenFull}, {uDry}, {uHoldOver}, {uSetChannel}, {uTriggerChannel}, {uLatch}, {uSeed}}},
+    };
+    // Length from is Note's; Density and Onset random mean nothing with a trigger channel.
+    l.enables    = {{uEdo, uQuantize, 1}, {uRoot, uQuantize, 1}, {uLengthFrom, uGrain, 0},
+                    {uDensity, uTriggerChannel, 0}, {uRate, uTriggerChannel, 0}, {uOnsetRandom, uTriggerChannel, 0}};
+    l.rows       = {{kMainView, 0}, {1, 2}, {3, 4}};
+    l.rowWeights = {1, 1, 1};
+    return l;
+}
+
 // Chords: the scale's circle beside the chord's settings; the scale's and the output's.
 Layout chordsLayout() {
     Layout l;
@@ -221,6 +248,7 @@ Layout layoutFor(int kind) {
     case NG_GRID: return gridLayout();
     case NG_BURST: return burstLayout();
     case NG_CHORDS: return chordsLayout();
+    case NG_BUFFER: return bufferLayout();
     default: return cloudLayout();
     }
 }
@@ -830,7 +858,7 @@ private:
 
     SubWidget* itemWidget(int item) const {
         if (item >= 0) return fGroups[static_cast<std::size_t>(item)].get();
-        if (item == kSideView || fKind == NG_CLOUD || fKind == NG_GRID) return fLive.get();
+        if (item == kSideView || fKind == NG_CLOUD || fKind == NG_GRID || fKind == NG_BUFFER) return fLive.get();
         if (fKind == NG_BURST) return fScatter.get();
         return fCircle.get();
     }

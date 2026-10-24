@@ -35,6 +35,7 @@ constexpr const char* kCloudId  = "com.unlikelyware.notegran.cloud";
 constexpr const char* kChordsId = "com.unlikelyware.notegran.chords";
 constexpr const char* kGridId   = "com.unlikelyware.notegran.grid";
 constexpr const char* kBurstId  = "com.unlikelyware.notegran.burst";
+constexpr const char* kBufferId = "com.unlikelyware.notegran.buffer";
 
 // Parameter ids (PLAN.md; plugin.cpp's ParamId).
 enum : clap_id {
@@ -293,7 +294,9 @@ std::vector<Event> run(Instance& r, Input& first, int64_t until, uint32_t frames
 // --- tests -----------------------------------------------------------------------------------
 
 void testDescriptor() {
-    CHECK(gFactory->get_plugin_count(gFactory) == 4);
+    CHECK(gFactory->get_plugin_count(gFactory) == 5);
+    const clap_plugin_descriptor_t* u = gFactory->get_plugin_descriptor(gFactory, 4);
+    CHECK(u != nullptr && std::strcmp(u->id, kBufferId) == 0 && std::strcmp(u->name, "Buffer") == 0);
     const clap_plugin_descriptor_t* b = gFactory->get_plugin_descriptor(gFactory, 3);
     CHECK(b != nullptr && std::strcmp(b->id, kBurstId) == 0 && std::strcmp(b->name, "Burst") == 0);
     const clap_plugin_descriptor_t* g = gFactory->get_plugin_descriptor(gFactory, 2);
@@ -781,6 +784,45 @@ void testBurst() {
     CHECK(sink.text.rfind("NoteGran Burst 1\n", 0) == 0 && sink.text.find("release 2\n") != std::string::npos);
 }
 
+void testBuffer() {
+    Instance r(kBufferId);
+    CHECK(r.ok());
+    if (!r.ok()) return;
+    CHECK(r.params->count(r.plugin) == 32);
+    clap_param_info_t info{};
+    CHECK(r.params->get_info(r.plugin, 26, &info) && std::strcmp(info.name, "Dry") == 0 && info.default_value == 1);
+    char text[64];
+    CHECK(r.params->value_to_text(r.plugin, 10, 1, text, sizeof(text)) && std::strcmp(text, "Fragment") == 0);
+    CHECK(r.params->value_to_text(r.plugin, 29, 0, text, sizeof(text)) && std::strcmp(text, "None") == 0);
+
+    // A MIDI 1.0 note, captured and passed through (Dry): then grains of it every 4800 samples
+    // (10 a second, on the grid), at the newest end of the window, in MIDI 1.0. Once the note is
+    // older than the 4 s window and the grains have ended, it sleeps.
+    r.set(31, 1);    // Seed
+    r.set(24, 32);   // Voices
+    r.set(4, 1);     // Position: newest
+    r.set(6, 0);     // Spray
+    r.set(7, 10);    // Density
+    r.set(9, 0);     // Onset random
+    Input in;
+    in.midi1(100, 0x90, 60, 100);
+    in.midi1(200, 0x80, 60, 0);
+    std::vector<Event> ons;
+    for (int b = 0; b < 420; ++b) {   // 215040 samples
+        Input none;
+        for (const Event& e : r.process(b == 0 ? in : none, 512))
+            if (isMidi1NoteOn(e)) ons.push_back(e);
+    }
+    CHECK(ons.size() == 41 && ons[0].time == 100);
+    for (std::size_t i = 1; i < ons.size(); ++i) CHECK(ons[i].time == std::int64_t(i) * 4800 && ons[i].bytes[1] == 60);
+    CHECK(r.lastStatus == CLAP_PROCESS_SLEEP);
+
+    Sink                 sink;
+    const clap_ostream_t os = {&sink, Sink::write};
+    CHECK(r.state->save(r.plugin, &os));
+    CHECK(sink.text.rfind("NoteGran Buffer 1\n", 0) == 0 && sink.text.find("position 1\n") != std::string::npos);
+}
+
 void testEditor() {
     // Each plugin has its editor (embedded only), at its own design size and shape.
     struct Design {
@@ -788,7 +830,7 @@ void testEditor() {
         uint32_t    width, height;
     };
     for (const Design& d : {Design{kCloudId, 900, 560}, Design{kGridId, 980, 700}, Design{kBurstId, 960, 660},
-                            Design{kChordsId, 920, 600}}) {
+                            Design{kChordsId, 920, 600}, Design{kBufferId, 940, 600}}) {
         Instance r(d.id);
         CHECK(r.ok());
         if (!r.ok()) continue;
@@ -846,6 +888,7 @@ int main(int argc, char** argv) {
     testChords();
     testGrid();
     testBurst();
+    testBuffer();
     testEditor();
     gEntry->deinit();
     if (failures != 0) {

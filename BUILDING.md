@@ -1,8 +1,8 @@
 # Building NoteGran
 
 NoteGran builds the same way on Linux and macOS: CMake + Ninja, git submodules, C++20. The build
-makes the core library `notegran_core`, the plugin `NoteGran.clap` (NoteGran Cloud, Chords, Grid and
-Burst, with their editors), and two test
+makes the core library `notegran_core`, the plugin `NoteGran.clap` (NoteGran Cloud, Chords, Grid,
+Burst and Buffer, with their editors), and two test
 programs: `notegran-core-tests` (the core) and `notegran-clap-tests` (a headless host that loads
 the built `.clap`).
 

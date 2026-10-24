@@ -42,14 +42,14 @@ void Assigner::process(std::int64_t start, std::int64_t frames, const Transport*
                        std::size_t inputCount, NoteOut& out) noexcept {
     if (clock_.begin(start, frames, transport).stopped) reset(start, out);
 
-    const bool  phrases = startsPhrases();
-    std::size_t grains  = 0;
-    if (triggerChannel_ == NoteSet::kNone || phrases) collectGrains(grains);
+    const bool phrases = startsPhrases();
+    next_  = 0;
+    count_ = 0;
+    collectGrains(count_);
 
     // In time order: the inputs at a sample before the grains at it (a set change comes first).
-    std::size_t next = 0;
     auto playUntil = [&](std::int64_t before) {
-        for (; next < grains && grains_[next].time < before; ++next) playOne(grains_[next], out);
+        for (; next_ < count_ && grains_[next_].time < before; ++next_) playOne(grains_[next_], out);
     };
     for (std::size_t i = 0; i < inputCount; ++i) {
         InputEvent& in = inputs[i];
@@ -59,24 +59,23 @@ void Assigner::process(std::int64_t start, std::int64_t frames, const Transport*
         case Heard::Kind::Other: in.pass = true; break;
         case Heard::Kind::SetNote:
             in.pass = dry_;
-            if (phrases) heard(h, in.time, next, grains);
+            heard(h, in.time, next_, count_);
             break;
         case Heard::Kind::Reset:
             in.pass = true;
             owned_.endAll(in.time, out);
             hasLast_ = false;
             cleared();
-            if (phrases) grains = next;   // the phrases' grains still to come
+            if (phrases) count_ = next_;   // the phrases' grains still to come
             break;
         case Heard::Kind::Trigger:
             in.pass = false;
             if (phrases) {
-                heard(h, in.time, next, grains);
+                heard(h, in.time, next_, count_);
                 break;
             }
-            // Triggers only come with a trigger channel, which has no collected grains: appending
-            // keeps the grains in time order.
-            if (h.strike && grains < grains_.size()) grains_[grains++] = Grain{in.time, triggers_++, h.velocity, 0};
+            // Put in time order: a trigger channel has no onsets, but a Fragment's notes may be due.
+            if (h.strike) addGrain(Grain{in.time, triggers_++, h.velocity, 0});
             break;
         }
     }
@@ -84,12 +83,56 @@ void Assigner::process(std::int64_t start, std::int64_t frames, const Transport*
     owned_.endUntil(clock_.blockEnd() - 1, out);
 }
 
+bool Assigner::addGrain(const Grain& g) noexcept {
+    if (count_ >= grains_.size() || g.time >= clock_.blockEnd()) return false;
+    // After every grain at its time or earlier, from the one playing on.
+    const std::size_t lo = playing_ ? next_ + 1 : next_;
+    std::size_t       at = count_;
+    while (at > lo && grains_[at - 1].time > g.time) --at;
+    for (std::size_t i = count_; i > at; --i) grains_[i] = grains_[i - 1];
+    grains_[at] = g;
+    ++count_;
+    return true;
+}
+
+void Assigner::dropGrains(std::uint8_t tag) noexcept {
+    std::size_t kept = playing_ ? next_ + 1 : next_;
+    for (std::size_t i = kept; i < count_; ++i)
+        if (grains_[i].tag != tag) grains_[kept++] = grains_[i];
+    count_ = kept;
+}
+
+// Onset random r: each slot is, with chance r, Poisson dust (a Poisson(1) count of grains, each at
+// a uniform place in the slot), and otherwise one grain, up to r of the way into the slot. At 0,
+// one grain on each slot; at 1, a Poisson process at the same mean rate. All keyed on the slot n
+// (Timing draws 0, 1, 2 + j), and grain j of slot n is index n * 16 + j for the other draws.
+void Assigner::collectOnsets(const Grid& g, std::int32_t onsetRandom, std::size_t& count) noexcept {
+    const std::int64_t r = std::clamp<std::int64_t>(onsetRandom, 0, kOne16);
+    clock_.slotsAround(g, [&](std::int64_t n) {
+        auto add = [&](std::uint32_t j, std::int64_t frac) {
+            std::int64_t sample = 0;
+            if (count < grains_.size() && clock_.placeInSlot(g, n, frac, sample))
+                grains_[count++] = Grain{sample, n * 16 + j, 0xFFFF, 0};
+        };
+        if (random_.chance(r << 16, Stream::Timing, n, 0)) {
+            const std::uint32_t k = random_.poisson1(Stream::Timing, n, 1);
+            for (std::uint32_t j = 0; j < k; ++j) add(j, random_.unit(Stream::Timing, n, 2 + j) >> 16);
+        } else {
+            add(0, ((random_.unit(Stream::Timing, n, 2) >> 16) * r) >> 16);
+        }
+    });
+    std::sort(grains_.begin(), grains_.begin() + static_cast<std::ptrdiff_t>(count),
+              [](const Grain& a, const Grain& b) { return a.time != b.time ? a.time < b.time : a.index < b.index; });
+}
+
 void Assigner::playOne(const Grain& g, NoteOut& out) noexcept {
     set_.settle(g.time);
     // Notes due by now end first, so whether a key is free doesn't depend on where blocks fall.
     if (!owned_.endUntil(g.time, out)) return;
-    if (set_.empty() && !startsPhrases()) return;
+    if (set_.empty() && !playsWithoutSet()) return;
+    playing_ = true;
     play(g, out);
+    playing_ = false;
 }
 
 void Assigner::start(const Member& m, std::int32_t pitch, std::int64_t time, std::int64_t length,

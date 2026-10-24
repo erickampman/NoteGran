@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/Buffer.h"
 #include "core/Burst.h"
 #include "core/Chords.h"
 #include "core/Clock.h"
@@ -2128,6 +2129,246 @@ void testBurstPhrasesAndTriggers() {
     CHECK(on.size() == 1 && on[0].time == 0);
 }
 
+// --- Buffer -------------------------------------------------------------------------------
+
+CloudRun runBuffer(const BufferParams& params, std::vector<InputEvent> inputs, std::int64_t length, bool oneBlock,
+                   const TransportFn& transport = nullptr, std::uint32_t sizesSeed = 777) {
+    auto core = std::make_unique<BufferCore>();
+    core->setSampleRate(48000.0);
+    core->setParams(params);
+    CloudRun               run;
+    std::vector<NoteEvent> buffer(8192);
+    Sizes                  sizes;
+    sizes.lcg      = sizesSeed;
+    std::size_t in = 0;
+    for (std::int64_t start = 0; start < length;) {
+        const std::int64_t frames = oneBlock ? length : std::min(sizes.next(), length - start);
+        const std::size_t  first  = in;
+        while (in < inputs.size() && inputs[in].time < start + frames) ++in;
+        NoteOut          out(buffer.data(), buffer.size());
+        Transport        t;
+        const Transport* tp = transport ? transport(start, t) : nullptr;
+        core->process(start, frames, tp, inputs.data() + first, in - first, out);
+        for (std::size_t i = 0; i < out.size(); ++i) {
+            CHECK(out[i].time >= start && out[i].time < start + frames);
+            run.events.push_back(out[i]);
+        }
+        start += frames;
+    }
+    for (const InputEvent& i : inputs) run.passed.push_back(i.pass);
+    return run;
+}
+
+// Every slot of 10 per second (4800 samples), 100 ms grains, a 4 s window (192000 samples).
+BufferParams bufferBasic() {
+    BufferParams p;
+    p.settings.voices = 32;
+    p.settings.dry    = false;
+    p.density         = 10.0;
+    p.spray           = 0;
+    return p;
+}
+
+void testBufferCapture() {
+    BufferCore c;
+    c.setSampleRate(48000.0);
+    BufferParams p = bufferBasic();
+    p.density      = 0.1;
+    c.setParams(p);
+    std::vector<NoteEvent> buffer(256);
+    std::array<BufferCore::Captured, BufferCore::kCapacity> cap{};
+    auto block = [&](std::int64_t start, std::int64_t frames, std::vector<InputEvent> in) {
+        NoteOut out(buffer.data(), buffer.size());
+        c.process(start, frames, nullptr, in.data(), in.size(), out);
+    };
+
+    // Three notes, the second still held: starts and lengths from the window's oldest end.
+    block(0, 48000, {input(0, on2(60, 0x8000)), input(10000, off2(60)), input(12000, on2(64, 0x4000, (64 << 9) + 100)),
+                     input(24000, on2(67, 0xFFFF)), input(30000, off2(67))});
+    int n = c.capture(cap);
+    CHECK(n == 3);
+    CHECK(cap[0].start == 144000 && cap[0].length == 10000 && cap[0].pitch == 60 * 512 && !cap[0].held);
+    CHECK(cap[1].start == 156000 && cap[1].length == 36000 && cap[1].pitch == (64 << 9) + 100 && cap[1].held &&
+          cap[1].velocity == 0x4000);
+    CHECK(cap[2].start == 168000 && cap[2].length == 6000);
+
+    // The window moves on: the first falls out of it; the held one's note-off fixes its length.
+    block(48000, 152000, {input(50000, off2(64))});
+    n = c.capture(cap);
+    CHECK(n == 2 && !cap[0].held && cap[0].length == 38000 && cap[0].start == 12000 - 8000);
+
+    // Frozen: nothing new is recorded, and what's there stays, however long.
+    p.freeze = true;
+    c.setParams(p);
+    block(200000, 1000, {input(200500, on2(72, 0x8000))});
+    CHECK(c.frozen());
+    block(201000, 1'000'000, {});
+    n = c.capture(cap);
+    CHECK(n == 2 && cap[0].start == 4000 && cap[1].start == 16000);
+    CHECK(c.busy());   // grains go on exploring it
+
+    // All Notes Off clears it.
+    block(1'201'000, 100, {input(1'201'050, m1(0xB, 0, 123, 0))});
+    CHECK(c.capture(cap) == 0 && !c.busy());
+}
+
+void testBufferNote() {
+    BufferParams p = bufferBasic();
+    // 60, then 64 from 1000 to 3000: at Position 1 (the newest end) a grain takes the latest note.
+    const std::vector<InputEvent> in = {input(0, on2(60, 0x8000)), input(0, off2(60)), input(1000, on2(64, 0x6000)),
+                                        input(3000, off2(64))};
+    p.position = kOne16;
+    auto run   = runBuffer(p, in, 48000, false);
+    auto on    = ons(run.events);
+    CHECK(on.size() == 10 && on[0].time == 0 && on[0].key == 60 && on[0].velocity == 0x8000);
+    for (std::size_t i = 1; i < on.size(); ++i) CHECK(on[i].time == std::int64_t(i) * 4800 && on[i].key == 64 && on[i].velocity == 0x6000);
+    checkPlayable(run.events, 32, false);
+    CHECK(!run.passed[0] && !run.passed[2]);
+
+    // Position 0 (the oldest end, 4 s ago): the oldest note.
+    p.position = 0;
+    on         = ons(runBuffer(p, in, 48000, false).events);
+    CHECK(on.size() == 10);
+    for (const NoteEvent& e : on) CHECK(e.key == 60);
+
+    // Length from Source: a grain of 64 is its 2000 samples; otherwise Length's 4800.
+    p.position     = kOne16;
+    p.sourceLength = true;
+    run            = runBuffer(p, in, 48000, true);
+    for (std::size_t i = 0; i < run.events.size(); ++i)
+        if (!run.events[i].on && run.events[i].key == 64) CHECK((run.events[i].time - 4800 * 1) % 4800 == 2000);
+    // An empty capture makes nothing.
+    CHECK(runBuffer(p, {}, 48000, false).events.empty());
+}
+
+void testBufferFragment() {
+    // Recorded in [0, 12000), then frozen, so the window is [0, 12000]: a chord, a note and a note.
+    BufferParams p              = bufferBasic();
+    p.windowMs                  = 250.0;
+    p.grain                     = BufferGrain::Fragment;
+    p.position                  = 0;
+    p.settings.triggerChannel   = 9;
+    const std::vector<InputEvent> played = {input(0, on2(60, 0x8000)), input(0, on2(64, 0x8000)), input(1000, off2(60)),
+                                            input(1000, off2(64)),     input(2400, on2(67, 0x8000)), input(3400, off2(67)),
+                                            input(9600, on2(72, 0x8000)), input(10600, off2(72))};
+    auto run = [&](const BufferParams& q, std::int64_t trigger, std::uint32_t sizesSeed) {
+        auto c = std::make_unique<BufferCore>();
+        c->setSampleRate(48000.0);
+        c->setParams(q);
+        std::vector<NoteEvent> buffer(256), all;
+        std::vector<InputEvent> a = played;
+        NoteOut out(buffer.data(), buffer.size());
+        c->process(0, 12000, nullptr, a.data(), a.size(), out);
+        BufferParams frozen = q;
+        frozen.freeze       = true;
+        c->setParams(frozen);
+        std::vector<InputEvent> t = {input(trigger, on2(36, 0xFFFF, 0, 9)), input(trigger + 10, off2(36, 9))};
+        Sizes sizes;
+        sizes.lcg = sizesSeed;
+        std::size_t next = 0;
+        for (std::int64_t start = 12000; start < 60000;) {
+            const std::int64_t frames = sizesSeed == 0 ? 48000 : std::min<std::int64_t>(sizes.next(), 60000 - start);
+            const std::size_t  first  = next;
+            while (next < t.size() && t[next].time < start + frames) ++next;
+            NoteOut o(buffer.data(), buffer.size());
+            c->process(start, frames, nullptr, t.data() + first, next - first, o);
+            for (std::size_t i = 0; i < o.size(); ++i) all.push_back(o[i]);
+            start += frames;
+        }
+        CHECK(!c->busy());
+        return all;
+    };
+
+    // Length 4800 from 0: 60 and 64 together at the trigger, 67 2400 later, each its own 1000.
+    auto ev = run(p, 13000, 0);
+    auto on = ons(ev);
+    CHECK(on.size() == 3);
+    CHECK(on.size() == 3 && on[0].time == 13000 && on[1].time == 13000 && on[2].time == 15400 && on[2].key == 67);
+    CHECK(on.size() == 3 && ((on[0].key == 60 && on[1].key == 64) || (on[0].key == 64 && on[1].key == 60)));
+    for (const NoteEvent& e : ev)
+        if (!e.on) CHECK(e.time == (e.key == 67 ? 16400 : 14000));
+    checkPlayable(ev, 32, true);
+    // Any block sizes: the same.
+    CHECK(sameEvents(ev, run(p, 13000, 777)));
+    CHECK(sameEvents(ev, run(p, 13000, 31)));
+
+    // Cut at the fragment's end: 3000 long, so 67 (at 2400) sounds 600.
+    p.lengthMs = 62.5;
+    ev         = run(p, 13000, 5);
+    for (const NoteEvent& e : ev)
+        if (!e.on && e.key == 67) CHECK(e.time == 15400 + 600);
+    // From 0.8 of the window (9600): only 72.
+    p.lengthMs = 100.0;
+    p.position = kOne16 * 4 / 5;
+    on         = ons(run(p, 13000, 0));
+    CHECK(on.size() == 1 && on[0].key == 72 && on[0].time == 13000);
+    // Transpose moves the whole fragment.
+    p.position        = 0;
+    p.pitch.transpose = 7 * 512;
+    on                = ons(run(p, 13000, 0));
+    CHECK(on.size() == 3 && on[2].key == 74);
+}
+
+void testBufferGate() {
+    // 60 held to 24000; the hold-over keeps it in the set to 24960.
+    BufferParams p = bufferBasic();
+    p.gate         = true;
+    const std::vector<InputEvent> in = {input(0, on2(60, 0x8000)), input(24000, off2(60))};
+    CHECK(ons(runBuffer(p, in, 96000, false).events).size() == 6);
+    // Off: the grains go on while the note is in the window.
+    p.gate = false;
+    CHECK(ons(runBuffer(p, in, 96000, false).events).size() == 20);
+    auto run = runBuffer(p, in, 300000, false);
+    auto on  = ons(run.events);
+    CHECK(on.size() == 41 && on.back().time == 192000);   // the last slot with the note in the window
+    checkPlayable(run.events, 32, true);
+}
+
+void testBufferRepeatable() {
+    BufferParams p      = bufferBasic();
+    p.density           = 30.0;
+    p.onsetRandom       = kOne16 / 2;
+    p.spray             = kOne16 / 3;
+    p.scan              = kOne16 / 2;
+    p.position          = kOne16 / 4;
+    p.windowMs          = 1500.0;
+    p.lengthMs          = 120.0;
+    p.lenSpread         = kOne16 / 2;
+    p.velSpread         = kOne16 / 3;
+    p.pitch.scatter     = 5 * 512;
+    p.settings.voices   = 8;
+    p.settings.dry      = true;
+    std::vector<InputEvent> in;
+    for (int k = 0; k < 24; ++k) {
+        const auto key = static_cast<std::uint8_t>(48 + (k * 5) % 24);
+        in.push_back(input(k * 9000, on2(key, static_cast<std::uint16_t>(0x3000 + k * 0x400))));
+        in.push_back(input(k * 9000 + 4000 + (k % 3) * 3000, off2(key)));
+    }
+    std::stable_sort(in.begin(), in.end(), [](const InputEvent& a, const InputEvent& b) { return a.time < b.time; });
+    for (BufferGrain grain : {BufferGrain::Note, BufferGrain::Fragment}) {
+        p.grain        = grain;
+        p.settings.sync = Clock::Mode::Free;
+        const auto one = runBuffer(p, in, 480000, true);
+        CHECK(sameEvents(one.events, runBuffer(p, in, 480000, false, nullptr, 777).events));
+        CHECK(sameEvents(one.events, runBuffer(p, in, 480000, false, nullptr, 4242).events));
+        checkPlayable(one.events, 8, true);
+        // (A fragment often falls between notes.)
+        CHECK(ons(one.events).size() > (grain == BufferGrain::Note ? 150u : 60u));
+        // Beats: the same, at 4 per beat (8 a second) over an 8-beat window.
+        p.settings.sync  = Clock::Mode::Beats;
+        const auto beats = runBuffer(p, in, 480000, true);
+        CHECK(sameEvents(beats.events, runBuffer(p, in, 480000, false, nullptr, 99).events));
+        checkPlayable(beats.events, 8, true);
+        CHECK(ons(beats.events).size() > (grain == BufferGrain::Note ? 60u : 15u));
+    }
+    // A seed is a different output.
+    p.settings.sync = Clock::Mode::Free;
+    p.grain         = BufferGrain::Note;
+    BufferParams q  = p;
+    q.settings.seed = 2;
+    CHECK(!sameEvents(runBuffer(p, in, 480000, true).events, runBuffer(q, in, 480000, true).events));
+}
+
 } // namespace
 
 int main() {
@@ -2185,6 +2426,11 @@ int main() {
     testBurstRelease();
     testBurstRepeatable();
     testBurstPhrasesAndTriggers();
+    testBufferCapture();
+    testBufferNote();
+    testBufferFragment();
+    testBufferGate();
+    testBufferRepeatable();
     if (failures != 0) std::fprintf(stderr, "%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -25,7 +25,7 @@ extern "C" {
 
 // --- provided by plugin.cpp, called by the editor --------------------------------------------
 
-enum { NG_CLOUD = 0, NG_CHORDS = 1, NG_GRID = 2, NG_BURST = 3 };
+enum { NG_CLOUD = 0, NG_CHORDS = 1, NG_GRID = 2, NG_BURST = 3, NG_BUFFER = 4 };
 
 const clap_host_t* ng_plugin_host(const clap_plugin_t* plugin);
 int                ng_plugin_kind(const clap_plugin_t* plugin);   // NG_CLOUD ..

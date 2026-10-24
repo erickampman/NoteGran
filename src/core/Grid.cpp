@@ -83,6 +83,7 @@ std::int64_t GridCore::slotAt(std::int64_t beats) const noexcept {
 }
 
 void GridCore::collectGrains(std::size_t& count) noexcept {
+    if (triggered()) return;
     const Grid g = Grid::perBeat(params_.rateNum, params_.rateDen);
     const auto density = std::clamp<std::int64_t>(params_.density, kOne16, 4 * kOne16);
     clock_.slotsAround(g, [&](std::int64_t n) {

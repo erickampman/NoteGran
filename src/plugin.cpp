@@ -1,5 +1,5 @@
 // src/plugin.cpp — NoteGran: the CLAP plugins around the core. One .clap whose factory lists one
-// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud, Chords, Grid and Burst. Each has its own
+// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud, Chords, Grid, Burst and Buffer. Each has its own
 // parameter table, state header and core; the events, dialects, block splitting and state code are
 // shared. A note effect: one note
 // input and one note output port, CLAP | MIDI | MIDI2, preferring MIDI2 (as Retune). Hand-written
@@ -31,6 +31,7 @@
 #include <random>
 #include <string>
 
+#include "core/Buffer.h"
 #include "core/Burst.h"
 #include "core/Chords.h"
 #include "core/Cloud.h"
@@ -265,9 +266,56 @@ const ParamSpec kBurstParams[] = {
     {"Seed", "seed", 0, 9999, 0, Kind::Stepped, nullptr, ""},
 };
 
+// --- NoteGran Buffer ---
+
+const char* const kGrainLabels[]      = {"Note", "Fragment"};
+const char* const kLengthFromLabels[] = {"Length", "Source"};
+
+enum BufferParamId : std::uint32_t {
+    kBfSync, kBfWindow, kBfWindowBeats, kBfFreeze, kBfPosition, kBfScan, kBfSpray, kBfDensity, kBfRate,
+    kBfOnsetRandom, kBfGrain, kBfLength, kBfLengthBeats, kBfLengthFrom, kBfOctaves, kBfTranspose, kBfScatter,
+    kBfQuantize, kBfEdo, kBfRoot, kBfLevel, kBfVelSpread, kBfLenSpread, kBfGate, kBfVoices, kBfWhenFull, kBfDry,
+    kBfHoldOver, kBfSetChannel, kBfTriggerChannel, kBfLatch, kBfSeed,
+};
+
+const ParamSpec kBufferParams[] = {
+    {"Sync", "sync", 0, 1, 0, Kind::Menu, kSyncLabels, ""},
+    {"Window", "window_s", 0.1, 30, 4, Kind::Number, nullptr, "s"},
+    {"Window (beats)", "window_beats", 1, 64, 8, Kind::Number, nullptr, "beats"},
+    {"Freeze", "freeze", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Position", "position", 0, 1, 0.5, Kind::Number, nullptr, ""},
+    {"Scan", "scan", -4, 4, 0, Kind::Number, nullptr, ""},
+    {"Spray", "spray", 0, 1, 0.1, Kind::Number, nullptr, ""},
+    {"Density", "density", 0.1, 200, 8, Kind::Number, nullptr, "/s"},
+    {"Rate", "rate", 0, 7, 5, Kind::Menu, kRateLabels, ""},
+    {"Onset random", "onset_random", 0, 1, 0.5, Kind::Number, nullptr, ""},
+    {"Grain", "grain", 0, 1, 0, Kind::Menu, kGrainLabels, ""},
+    {"Length", "length_ms", 1, 5000, 100, Kind::Number, nullptr, "ms"},
+    {"Length (beats)", "length_beats", 1.0 / 64, 16, 0.25, Kind::Number, nullptr, "beats"},
+    {"Length from", "length_from", 0, 1, 0, Kind::Menu, kLengthFromLabels, ""},
+    {"Octaves", "octaves", 0, 4, 0, Kind::Stepped, nullptr, ""},
+    {"Transpose", "transpose", -48, 48, 0, Kind::Number, nullptr, "st"},
+    {"Scatter", "scatter", 0, 24, 0, Kind::Number, nullptr, "st"},
+    {"Quantize", "quantize", 0, 2, 0, Kind::Menu, kQuantizeLabels, ""},
+    {"EDO", "edo", 1, 96, 12, Kind::Stepped, nullptr, ""},
+    {"Root", "root", 0, 11, 9, Kind::Menu, kRootLabels, ""},
+    {"Level", "level", 0, 2, 1, Kind::Number, nullptr, ""},
+    {"Velocity spread", "velocity_spread", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Length spread", "length_spread", 0, 1, 0, Kind::Number, nullptr, ""},
+    {"Gate", "gate", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Voices", "voices", 1, 32, 8, Kind::Stepped, nullptr, ""},
+    {"When full", "when_full", 0, 1, 0, Kind::Menu, kWhenFullLabels, ""},
+    {"Dry", "dry", 0, 1, 1, Kind::Menu, kOffOnLabels, ""},
+    {"Hold over", "hold_over", 0, 200, 20, Kind::Number, nullptr, "ms"},
+    {"Set channel", "set_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},
+    {"Trigger channel", "trigger_channel", 0, 16, 0, Kind::Stepped, nullptr, ""},
+    {"Latch", "latch", 0, 1, 0, Kind::Menu, kOffOnLabels, ""},
+    {"Seed", "seed", 0, 9999, 0, Kind::Stepped, nullptr, ""},
+};
+
 // --- the plugins ---
 
-enum class Which : std::uint8_t { Cloud, Chords, Grid, Burst };
+enum class Which : std::uint8_t { Cloud, Chords, Grid, Burst, Buffer };
 
 struct PluginDef {
     const clap_plugin_descriptor_t* desc;
@@ -358,8 +406,9 @@ struct Plugin {
     std::unique_ptr<CloudCore>  cloud;    // the one this plugin is
     std::unique_ptr<GridCore>   grid;
     std::unique_ptr<BurstCore>  burst;
+    std::unique_ptr<BufferCore> buffer;
     std::unique_ptr<ChordsCore> chords;
-    Assigner*                   assigner = nullptr;   // cloud, grid or burst
+    Assigner*                   assigner = nullptr;   // cloud, grid, burst or buffer
     std::uint64_t startSeed = 1;       // Seed 0: chosen at activate
     std::int64_t  now       = 0;       // absolute sample count at the block's start
     bool          endAll    = false;   // reset / reactivation: end what's sounding first
@@ -522,10 +571,52 @@ BurstParams burstParams(const Plugin* p) {
     return b;
 }
 
+BufferParams bufferParams(const Plugin* p) {
+    BufferParams      b;
+    AssignerSettings& a = b.settings;
+    a.sync              = intValue(p, kBfSync) == 1 ? Clock::Mode::Beats : Clock::Mode::Free;
+    a.voices            = intValue(p, kBfVoices);
+    a.whenFull          = intValue(p, kBfWhenFull) == 1 ? WhenFull::Steal : WhenFull::Skip;
+    a.dry               = intValue(p, kBfDry) == 1;
+    a.holdOverMs        = value(p, kBfHoldOver);
+    a.setChannel        = intValue(p, kBfSetChannel) - 1;
+    a.triggerChannel    = intValue(p, kBfTriggerChannel) - 1;
+    a.latch             = intValue(p, kBfLatch) == 1;
+    const int seed      = intValue(p, kBfSeed);
+    a.seed              = seed == 0 ? p->startSeed : static_cast<std::uint64_t>(seed);
+    b.windowMs          = value(p, kBfWindow) * 1000.0;
+    b.windowBeats       = std::llround(value(p, kBfWindowBeats) * static_cast<double>(kBeat));
+    b.freeze            = intValue(p, kBfFreeze) == 1;
+    b.position          = toQ16(value(p, kBfPosition));
+    b.scan              = static_cast<std::int32_t>(std::lround(value(p, kBfScan) * kOne16));   // signed: not toQ16
+    b.spray             = toQ16(value(p, kBfSpray));
+    b.density           = value(p, kBfDensity);
+    const int rate      = std::clamp(intValue(p, kBfRate), 0, 7);
+    b.divisionNum       = kRateNum[rate];
+    b.divisionDen       = kRateDen[rate];
+    b.onsetRandom       = toQ16(value(p, kBfOnsetRandom));
+    b.grain             = intValue(p, kBfGrain) == 1 ? BufferGrain::Fragment : BufferGrain::Note;
+    b.lengthMs          = value(p, kBfLength);
+    b.lengthBeats       = std::llround(value(p, kBfLengthBeats) * static_cast<double>(kBeat));
+    b.sourceLength      = intValue(p, kBfLengthFrom) == 1;
+    b.pitch.octaves     = intValue(p, kBfOctaves);
+    b.pitch.transpose   = PitchParams::fromSemitones(value(p, kBfTranspose));
+    b.pitch.scatter     = PitchParams::fromSemitones(value(p, kBfScatter));
+    b.pitch.quantize    = static_cast<Quantize>(std::clamp(intValue(p, kBfQuantize), 0, 2));
+    b.pitch.edo         = intValue(p, kBfEdo);
+    b.pitch.root        = intValue(p, kBfRoot);
+    b.level             = toQ16(value(p, kBfLevel));
+    b.velSpread         = toQ16(value(p, kBfVelSpread));
+    b.lenSpread         = toQ16(value(p, kBfLenSpread));
+    b.gate              = intValue(p, kBfGate) == 1;
+    return b;
+}
+
 void applyParams(Plugin* p) {
     if (p->cloud) p->cloud->setParams(cloudParams(p));
     if (p->grid) p->grid->setParams(gridParams(p));
     if (p->burst) p->burst->setParams(burstParams(p));
+    if (p->buffer) p->buffer->setParams(bufferParams(p));
     if (p->chords) p->chords->setParams(chordsParams(p));
 }
 
@@ -970,6 +1061,10 @@ const char* zeroText(const PluginDef& def, clap_id id) {
         if (id == kBSetChannel) return "All";
         if (id == kBTriggerChannel) return "None";
         if (id == kBSeed) return "New each start";
+    } else if (def.which == Which::Buffer) {
+        if (id == kBfSetChannel) return "All";
+        if (id == kBfTriggerChannel) return "None";
+        if (id == kBfSeed) return "New each start";
     } else if (id == kScaleChannel) {
         return "None";
     }
@@ -1163,12 +1258,27 @@ const clap_plugin_descriptor_t kBurst = {
     .features     = kFeatures,
 };
 
-// One per plugin, in the factory's order; the next one (Buffer) is appended.
+const clap_plugin_descriptor_t kBuffer = {
+    .clap_version = CLAP_VERSION_INIT,
+    .id           = "com.unlikelyware.notegran.buffer",
+    .name         = "Buffer",
+    .vendor       = "Unlikelyware",
+    .url          = "https://unlikelyware.com",
+    .manual_url   = "",
+    .support_url  = "",
+    .version      = NOTEGRAN_VERSION_STRING,
+    .description  = "Granular notes from a capture of what was just played: grains read single notes or "
+                    "fragments of it at a drifting position, which can be frozen.",
+    .features     = kFeatures,
+};
+
+// One per plugin, in the factory's order; a new one is appended.
 const PluginDef kPlugins[] = {
     {&kCloud, Which::Cloud, kCloudParams, sizeof(kCloudParams) / sizeof(kCloudParams[0]), "NoteGran Cloud "},
     {&kChords, Which::Chords, kChordsParams, sizeof(kChordsParams) / sizeof(kChordsParams[0]), "NoteGran Chords "},
     {&kGrid, Which::Grid, kGridParams, sizeof(kGridParams) / sizeof(kGridParams[0]), "NoteGran Grid "},
     {&kBurst, Which::Burst, kBurstParams, sizeof(kBurstParams) / sizeof(kBurstParams[0]), "NoteGran Burst "},
+    {&kBuffer, Which::Buffer, kBufferParams, sizeof(kBufferParams) / sizeof(kBufferParams[0]), "NoteGran Buffer "},
 };
 constexpr std::uint32_t kPluginCount = sizeof(kPlugins) / sizeof(kPlugins[0]);
 
@@ -1193,6 +1303,10 @@ const clap_plugin_t* factory_create(const clap_plugin_factory_t*, const clap_hos
     case Which::Burst:
         p->burst.reset(new (std::nothrow) BurstCore());
         p->assigner = p->burst.get();
+        break;
+    case Which::Buffer:
+        p->buffer.reset(new (std::nothrow) BufferCore());
+        p->assigner = p->buffer.get();
         break;
     case Which::Chords: p->chords.reset(new (std::nothrow) ChordsCore()); break;
     }
@@ -1251,6 +1365,7 @@ int ng_plugin_kind(const clap_plugin_t* plugin) {
     case Which::Chords: return NG_CHORDS;
     case Which::Grid: return NG_GRID;
     case Which::Burst: return NG_BURST;
+    case Which::Buffer: return NG_BUFFER;
     }
     return NG_CLOUD;
 }

@@ -9,7 +9,8 @@ for the other formats.
 **Status (2026-10-22):** phases 1–4 done: Cloud, Chords and Grid are built, pass their tests and
 `clap-validator`, and are heard working in StageHand with KeyboardEDO. Phase 5, Burst, is built and
 tested (2026-10-22), not yet heard. Editors (2026-10-22): all four are built and draw in StageHand; not
-yet seen with notes playing (Editors, below). Then phase 6, Buffer.
+yet seen with notes playing (Editors, below). Phase 6, Buffer, is built and tested (2026-10-24), with a
+first editor (Cloud's live view); not yet heard or seen in a host.
 
 Where this came from: StageHand's generators were split in two (2026-10-21). The ones that read what's
 played are note effects (this plugin), so they work in StageHand, Umpire and any CLAP host. The ones
@@ -430,6 +431,34 @@ its natural producer; Buffer hears the looper's output and captures it as it pla
   played.
 - **Input note-offs** end the input note (if Dry) and fix its length in the capture. They don't stop
   grains. `Gate` (on/off, default off): on, grains spawn only while a key is held.
+- **As built (2026-10-24)** (`src/core/Buffer`): an assigner like the others (the set for Gate, Dry
+  and Quantize Set; the clock, owned notes and draws), which captures what the set hears instead of
+  picking from it. The capture is a ring of the last 512 set-channel notes; of those, the ones
+  starting in [E − Window, E] are read, E the grain's time (or the freeze's, the block start where
+  Freeze went on). Frozen, nothing new is recorded; a note-off still fixes a held note's length.
+- **The read point, as BufferGran's** (PMU `src/Module/BufferGran.cpp`): a fraction of the window
+  from its oldest end, Position + Scan's phase + Spray, wrapped (1 with no drift or spray is the
+  newest end), rounded to the nearest sample. Scan is windows per window length (−4 to 4), its phase
+  Scan × t / Window from the absolute sample count, so it's the same for any block size (a change to
+  Scan or Window moves the phase at once); Spray is uniform ± (Position draw 0).
+- **Onsets** are Cloud's (Density or Rate, Onset random: now `Assigner::collectOnsets`). With a
+  trigger channel its note-ons are the grains, and Gate doesn't apply.
+- **Note:** the captured note starting nearest the read point (the earlier on a tie), with Octaves,
+  Transpose, Scatter and Quantize, velocity × Level, and Length, or its own length with `Length
+  from` Source (provisional while held).
+- **Fragment:** the notes starting in [read point, + Length) are copied (up to 64) when the grain
+  starts, each replayed at the grain's time + its offset, cut at the fragment's end. One pitch draw
+  for the fragment (the grain's index), so a chord stays a chord; Quantize per note; velocity draws
+  per note. Up to 32 fragments; a 33rd replaces the oldest, whose notes to come are dropped. A
+  fragment plays out whatever Gate does. An open note's length is how long it's been held so far.
+- All Notes Off, reset and the transport stopping clear the capture. Defaults: Window 4 s / 8
+  beats, Position 0.5, Scan 0, Spray 0.1, Density 8/s or 4 per beat, Onset random 0.5, Note, Length
+  100 ms / ¼ beat, Dry on. 32 parameters; state header `NoteGran Buffer 1`.
+- **Assigner gained** `playsWithoutSet`, `addGrain` / `dropGrains` (a grain adding grains later in
+  its block) and `triggered()`; `heard()` is now called for every set note, and `collectGrains` with
+  a trigger channel too (Cloud and Grid collect nothing then).
+- **Still to do:** an editor view of its own (the capture on a timeline, the read point and spray
+  over it, the fragment's span), and hearing it in StageHand behind a looper.
 
 ## Later
 
