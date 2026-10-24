@@ -12,7 +12,7 @@
 #include "core/Random.h"
 #include "uw/ump/MidiMessage.h"
 
-// NoteGran Cloud's logic (PLAN.md, "NoteGran Cloud"), with no CLAP: grains whose pitches are picked
+// NoteGran Cloud's logic (docs/design.md, "NoteGran Cloud"), with no CLAP: grains whose pitches are picked
 // from the set, at a rate on the clock. The plugin layer (phase 2) and a host's generator both drive
 // it the same way: inputs and a transport in, NoteEvents out, all in absolute sample time. What it
 // shares with the other assigners is Assigner's.

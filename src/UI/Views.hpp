@@ -1,4 +1,4 @@
-// Views.hpp — the editors' live views (PLAN.md, "Editors"): what's playing, and for Grid, Burst and
+// Views.hpp — the editors' live views (docs/design.md, "Editors"): what's playing, and for Grid, Burst and
 // Chords what their settings make. Each is handed its data by NoteGranUI.cpp on the timer; none
 // talks to the plugin.
 //

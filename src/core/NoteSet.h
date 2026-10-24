@@ -7,7 +7,7 @@
 #include "core/NoteEvents.h"
 #include "uw/ump/MidiMessage.h"
 
-// The set (PLAN.md, "The set"): the notes held on the input, which an assigner picks from and
+// The set (docs/design.md, "The set"): the notes held on the input, which an assigner picks from and
 // Chords builds on. Each member has its pitch in 1/512 semitone (EDO pitches survive), its velocity
 // and its arrival order.
 //

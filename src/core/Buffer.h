@@ -7,7 +7,7 @@
 #include "core/Assigner.h"
 #include "core/Pitch.h"
 
-// NoteGran Buffer's logic (PLAN.md, "NoteGran Buffer"), after PMU's BufferGran: a whole generator
+// NoteGran Buffer's logic (docs/design.md, "NoteGran Buffer"), after PMU's BufferGran: a whole generator
 // whose input is a history. It captures the notes played on the set channels in the last Window,
 // and its grains read that capture: when (Density, Onset random, as Cloud's), what pitch
 // (Transpose, Scatter, Quantize) and where (Position, Scan, Spray).

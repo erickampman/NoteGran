@@ -7,7 +7,7 @@
 
 #include "core/NoteEvents.h"
 
-// The owned-note table (PLAN.md, "Notes always end"): every note the plugin has started and not
+// The owned-note table (docs/design.md, "Notes always end"): every note the plugin has started and not
 // yet ended, with the time it ends. Its note-offs are the only ones the plugin sends, so none can
 // stick. It also applies `Voices` and `When full`: with Skip, a new note that would cut one short
 // (over the limit, or on a key already sounding on that channel) isn't played; with Steal, the
@@ -36,7 +36,7 @@ struct NoteStart {
     std::uint16_t velocity = 0;
 };
 
-// What a new note does when Voices are all sounding (PLAN.md, "When full").
+// What a new note does when Voices are all sounding (docs/design.md, "When full").
 enum class WhenFull : std::uint8_t {
     Skip,    // it isn't played, nor is one on a key that's sounding: no note is cut short
     Steal,   // the oldest note ends first, and a sounding key is struck again: the newest sound
@@ -106,7 +106,7 @@ private:
     // One bit per key, per group and channel, for sounding() without a scan.
     std::array<std::array<std::uint64_t, 2>, 256> keyBits_{};
     NoteId   nextId_   = 1;
-    int      voices_   = 8;               // the plugins' default; their parameter goes to 32 (PLAN.md)
+    int      voices_   = 8;               // the plugins' default; their parameter goes to 32 (docs/design.md)
     WhenFull whenFull_ = WhenFull::Skip;
 };
 

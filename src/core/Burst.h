@@ -7,7 +7,7 @@
 #include "core/Assigner.h"
 #include "core/Pitch.h"
 
-// NoteGran Burst's logic (PLAN.md, "NoteGran Burst"), after PMU's IFSGran: each note-on in the set
+// NoteGran Burst's logic (docs/design.md, "NoteGran Burst"), after PMU's IFSGran: each note-on in the set
 // (or on the trigger channel) starts a phrase of grains rooted on that note, its points in time and
 // pitch drawn from a two-transform attractor.
 //

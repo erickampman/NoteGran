@@ -9,7 +9,7 @@
 #include "core/OwnedNotes.h"
 #include "core/Scales.h"
 
-// NoteGran Chords' logic (PLAN.md, "NoteGran Chords"), with no CLAP: each note held becomes a chord
+// NoteGran Chords' logic (docs/design.md, "NoteGran Chords"), with no CLAP: each note held becomes a chord
 // built on it in a scale, held as long as the note. The scale is a familiar one mapped into an
 // N-EDO, or the notes held on a scale channel. A note in the scale sounds on its EDO step with its
 // chord; one outside it passes through as played (or goes to the nearest degree, or is dropped).

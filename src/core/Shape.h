@@ -4,7 +4,7 @@
 
 #include "core/Random.h"
 
-// Velocity and length (PLAN.md, "Velocity and length"). Settings in Q16 fixed point (65536 is 1),
+// Velocity and length (docs/design.md, "Velocity and length"). Settings in Q16 fixed point (65536 is 1),
 // turned from the parameters' doubles once, as the clock's are.
 namespace notegran {
 

@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// Familiar scales, and mapping them into an N-EDO (PLAN.md, "NoteGran Chords").
+// Familiar scales, and mapping them into an N-EDO (docs/design.md, "NoteGran Chords").
 //
 // A familiar scale is stored spelled: each degree as its place on the chain of fifths from the key
 // (C 0, G 1, D 2, ... F −1, Bb −2, ...), so F# (6) and Gb (−6) are different degrees. A place p

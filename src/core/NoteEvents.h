@@ -7,7 +7,7 @@
 
 // What the core sends: note starts and ends, in absolute sample time, before they're written as
 // UMP or CLAP events. The plugin layer turns each into the dialect it names, at the offset of
-// `time` in its block (PLAN.md, "Ports and dialects").
+// `time` in its block (docs/design.md, "Ports and dialects").
 namespace notegran {
 
 // The dialect a note leaves in: that of the note it came from.

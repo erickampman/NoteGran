@@ -7,7 +7,7 @@
 #include "core/Assigner.h"
 #include "core/Pitch.h"
 
-// NoteGran Grid's logic (PLAN.md, "NoteGran Grid"), after PMU's ClockGran: picks on a beat grid
+// NoteGran Grid's logic (docs/design.md, "NoteGran Grid"), after PMU's ClockGran: picks on a beat grid
 // whose positions have tiers. A rate's slots are grouped into a repeating cycle (a meter), and
 // each slot belongs to one of five tiers, each with its own Probability, Level, Offset, Chaos and
 // Pick. So a bar's downbeat can always take the lowest note, and the spare sixteenths a random

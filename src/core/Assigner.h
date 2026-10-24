@@ -10,7 +10,7 @@
 #include "core/OwnedNotes.h"
 #include "core/Random.h"
 
-// What every assigner shares (PLAN.md, "The model"): the set it picks from, the clock, the
+// What every assigner shares (docs/design.md, "The model"): the set it picks from, the clock, the
 // owned-note table, the random draws, and the order things happen in a block. An assigner says
 // only when its grains are (collectGrains) and what each plays (play); Cloud, Grid and Burst are
 // the three, and Buffer, a whole generator, uses it too.
@@ -36,7 +36,7 @@ enum class Pick : std::uint8_t {
     Highest,
 };
 
-// The settings every assigner has (PLAN.md, "What every plugin shares").
+// The settings every assigner has (docs/design.md, "What every plugin shares").
 struct AssignerSettings {
     Clock::Mode   sync           = Clock::Mode::Free;
     int           voices         = 8;
@@ -65,7 +65,7 @@ public:
     // Ends every note at `time` and clears the set: reset(), deactivating, a bypass.
     void reset(std::int64_t time, NoteOut& out) noexcept;
 
-    // Notes sounding, or a set to play from: the plugin keeps being processed (PLAN.md).
+    // Notes sounding, or a set to play from: the plugin keeps being processed (docs/design.md).
     virtual bool busy() const noexcept { return !owned_.empty() || !set_.empty(); }
 
     // Where the last block ended, in beat units, or -1 when it isn't on beats (an editor's playhead).
@@ -114,7 +114,7 @@ protected:
     // From play() or heard(): drops the grains with `tag` still to play.
     void dropGrains(std::uint8_t tag) noexcept;
 
-    // Cloud's and Buffer's onsets (PLAN.md, "Time"): the grains of `grid` in this block, with
+    // Cloud's and Buffer's onsets (docs/design.md, "Time"): the grains of `grid` in this block, with
     // Onset random `onsetRandom` (Q16), appended to grains_ and sorted.
     void collectOnsets(const Grid& grid, std::int32_t onsetRandom, std::size_t& count) noexcept;
 

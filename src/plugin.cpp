@@ -1,5 +1,5 @@
 // src/plugin.cpp — NoteGran: the CLAP plugins around the core. One .clap whose factory lists one
-// plugin per job (PLAN.md, "The plugins"): NoteGran Cloud, Chords, Grid, Burst and Buffer. Each has its own
+// plugin per job (docs/design.md, "The plugins"): NoteGran Cloud, Chords, Grid, Burst and Buffer. Each has its own
 // parameter table, state header and core; the events, dialects, block splitting and state code are
 // shared. A note effect: one note
 // input and one note output port, CLAP | MIDI | MIDI2, preferring MIDI2 (as Retune). Hand-written
@@ -8,7 +8,7 @@
 // - Inputs go to the core as UMP: MIDI 2.0 as it is, MIDI 1.0 wrapped as MT 0x2, CLAP notes as
 //   MIDI 2.0 notes tagged Dialect::Clap (a tuning expression as Pitch 7.25, so the set follows it).
 //   The core marks each input to pass through or not; system MIDI and SysEx always pass.
-// - Grains leave in the dialect of the note they came from (PLAN.md, "Ports and dialects").
+// - Grains leave in the dialect of the note they came from (docs/design.md, "Ports and dialects").
 // - A parameter or transport event splits the block at its sample: the cores give the same notes
 //   for any block sizes, so this makes automation sample-accurate for nothing.
 // - Time is the plugin's own running sample count, so the core sees an absolute clock.
@@ -166,7 +166,7 @@ enum GridParamId : std::uint32_t {
 };
 constexpr std::uint32_t kGTierParams = 5;
 
-// Tiers (PLAN.md, "NoteGran Grid"): in Straight, 1 the bar's downbeat, 2 the half, 3 the quarters,
+// Tiers (docs/design.md, "NoteGran Grid"): in Straight, 1 the bar's downbeat, 2 the half, 3 the quarters,
 // 4 the eighths, 5 the sixteenths; in a grouped meter, the groups' downbeats, then the other beats,
 // then the off-beats.
 const ParamSpec kGridParams[] = {
@@ -228,7 +228,7 @@ enum BurstParamId : std::uint32_t {
     kBVoices, kBWhenFull, kBDry, kBHoldOver, kBSetChannel, kBTriggerChannel, kBLatch, kBSeed,
 };
 
-// The attractor's maps (PLAN.md, "NoteGran Burst"): X is time, Y pitch, both 0 .. 1.
+// The attractor's maps (docs/design.md, "NoteGran Burst"): X is time, Y pitch, both 0 .. 1.
 const ParamSpec kBurstParams[] = {
     {"Sync", "sync", 0, 1, 0, Kind::Menu, kSyncLabels, ""},
     {"Duration", "duration_ms", 10, 10000, 800, Kind::Number, nullptr, "ms"},

@@ -6,7 +6,7 @@
 #include "core/NoteSet.h"
 #include "core/Random.h"
 
-// Pitch (PLAN.md, "Pitch"): from a picked member's pitch to a grain's, and from that to the key it
+// Pitch (docs/design.md, "Pitch"): from a picked member's pitch to a grain's, and from that to the key it
 // goes out on. In 1/512 semitone (Pitch 7.9 units) throughout: 6144 is an octave, 0 .. 65535 the
 // range a Pitch 7.9 can carry (MIDI note 0 to 127 + 511/512).
 namespace notegran {

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Seeded random draws (PLAN.md, "Randomness and repeatability"). Counter-based: a draw is a fixed
+// Seeded random draws (docs/design.md, "Randomness and repeatability"). Counter-based: a draw is a fixed
 // integer hash of the seed, its stream, its index and its draw number, not the next value of a
 // running generator. So any draw can be worked out alone, in any order: a host can start anywhere
 // (Umpire playing a clip from bar 5) and get what it would have got playing from the start, and
@@ -20,7 +20,7 @@
 //
 // Integer arithmetic only, so every machine gives the same values. The values are part of what a
 // saved song sounds like with a fixed seed: the tests pin some of them, and a change to the hash or a
-// distribution is a change of output, to be versioned (PLAN.md, "Integration").
+// distribution is a change of output, to be versioned (docs/design.md, "Integration").
 namespace notegran {
 
 enum class Stream : std::uint32_t {

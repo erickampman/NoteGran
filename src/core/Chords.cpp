@@ -148,7 +148,7 @@ void ChordsCore::strike(Held& h, std::int64_t time, Dialect dialect, std::uint16
     const auto v = static_cast<std::uint16_t>(
         std::clamp<std::int64_t>((std::int64_t{velocity} * std::max(params_.level, 0) + kOne16 / 2) >> 16, 1, 0xFFFF));
     for (std::size_t i = 0; i < n; ++i) {
-        // MIDI 1.0 can't carry a fraction: such a note goes out as MIDI 2.0 (PLAN.md, question 10).
+        // MIDI 1.0 can't carry a fraction: such a note goes out as MIDI 2.0 (docs/design.md, question 10).
         const Dialect d = dialect == Dialect::Midi1 && pitches[i] % kSemitone != 0 ? Dialect::Midi2 : dialect;
 
         // Already sounding from another chord: share it.

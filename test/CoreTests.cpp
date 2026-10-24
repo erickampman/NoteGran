@@ -1,4 +1,4 @@
-// NoteGran core tests (PLAN.md, phase 1). Silent unless a check fails.
+// NoteGran core tests (docs/design.md, phase 1). Silent unless a check fails.
 
 #include <algorithm>
 #include <cstdint>
@@ -880,7 +880,7 @@ void testClockLengths() {
 
 void testRandomPinned() {
     // These values are part of what a fixed seed sounds like. If one changes, so does every saved
-    // song's output: version it (PLAN.md, "Integration"), don't just update the numbers.
+    // song's output: version it (docs/design.md, "Integration"), don't just update the numbers.
     const Random r(1234);
     CHECK(r.bits(Stream::Timing, 0) == 0x5caceb7b9e631c50ull);
     CHECK(r.bits(Stream::Pick, 0) == 0xf09d263a1ae25cd8ull);
@@ -1523,7 +1523,7 @@ void testScales() {
           std::vector<int>({0, 2, 4, 5, 7, 9, 11}));
     CHECK(stepsOf(mapFamiliar(lydDom, 0, 12, 0, MapBy::Nearest)) == std::vector<int>({0, 2, 4, 6, 7, 9, 10}));
 
-    // 19-EDO, by fifths: 0 3 6 9 11 14 16 (PLAN.md's table); nearest ties F# up to 10.
+    // 19-EDO, by fifths: 0 3 6 9 11 14 16 (docs/design.md's table); nearest ties F# up to 10.
     EdoScale s = mapFamiliar(lydDom, 0, 19, 0, MapBy::Fifths);
     CHECK(stepsOf(s) == std::vector<int>({0, 3, 6, 9, 11, 14, 16}) && s.keyStep == 0 && s.keyPitchClass == 0);
     CHECK(stepsOf(mapFamiliar(lydDom, 0, 19, 0, MapBy::Nearest)) == std::vector<int>({0, 3, 6, 10, 11, 14, 16}));

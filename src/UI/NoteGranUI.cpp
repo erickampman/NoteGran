@@ -1,4 +1,4 @@
-// NoteGranUI.cpp — NoteGran's editors (PLAN.md, "Editors"), DPF + NanoVG, after StruckSynth's.
+// NoteGranUI.cpp — NoteGran's editors (docs/design.md, "Editors"), DPF + NanoVG, after StruckSynth's.
 //
 // One shell for the four plugins: the header (the Unlikelyware logo, "NoteGran" and the plugin's
 // name in its colour), the house widget kit (Knob, Dropdown, Toggle, GroupBox, PopupMenu, copied

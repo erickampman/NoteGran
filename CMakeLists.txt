@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.21)
 
 # C for DPF's pugl and NanoVG sources.
-project(NoteGran VERSION 0.1.0 LANGUAGES C CXX)
+# macOS: 26 or later, Apple Silicon only. Set before project();
+# ignored on other platforms. Both are cache variables, so -D overrides them.
+set(CMAKE_OSX_DEPLOYMENT_TARGET 26.0 CACHE STRING "macOS 26 or later")
+set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Apple Silicon only")
+project(NoteGran VERSION 0.9.0 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJCXX)   # DPF's DistrhoUI_macOS.mm and our BackingScale_mac.mm
 endif()
@@ -14,7 +18,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- uw-core (git submodule): only uw::ump, no CLAP host, JACK or ALSA ---------------------
-# NOTEGRAN_UW_CORE_DIR points at another uw-core clone (e.g. ~/Dev-Common/uw-core) to build
+# NOTEGRAN_UW_CORE_DIR points at another uw-core clone (e.g. ../uw-core) to build
 # against a change that isn't pushed and pinned yet.
 set(NOTEGRAN_UW_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/uw-core" CACHE PATH "uw-core source")
 set(UW_CORE_UMP_ONLY ON CACHE BOOL "" FORCE)

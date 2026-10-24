@@ -142,7 +142,7 @@ void Assigner::start(const Member& m, std::int32_t pitch, std::int64_t time, std
     });
     // Dry: a grain can't share a key with a set note passing through, which the plugin doesn't
     // own and can't end first. MIDI 2.0 and CLAP grains move to a free key; a MIDI 1.0 grain (or
-    // any, with every key taken) is skipped (PLAN.md, open question 9).
+    // any, with every key taken) is skipped (docs/design.md, open question 9).
     if (dry_ && set_.holds(m.group, m.channel, key.key)) return;
 
     NoteStart n;

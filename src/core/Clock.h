@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// The clock (PLAN.md, "Time"): where a block is, in samples (Free) or in beats (Beats), and which
+// The clock (docs/design.md, "Time"): where a block is, in samples (Free) or in beats (Beats), and which
 // slots of a rate start in it. A slot is one tick of a rate: slot n of a grid has a fixed position,
 // so nothing is carried from block to block. Output can't depend on block size, a host can start
 // anywhere (Umpire playing a clip from bar 5), and n is the index a counter-based random draw is
@@ -48,7 +48,7 @@ public:
 
     // What changed at this block's start, for the caller.
     struct Change {
-        bool stopped = false;   // Beats: the host's transport stopped (end every note, PLAN.md)
+        bool stopped = false;   // Beats: the host's transport stopped (end every note, docs/design.md)
         bool jumped  = false;   // Beats: the host's beat position moved other than by playing (loop, seek)
     };
 

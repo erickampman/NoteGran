@@ -37,7 +37,7 @@ constexpr const char* kGridId   = "com.unlikelyware.notegran.grid";
 constexpr const char* kBurstId  = "com.unlikelyware.notegran.burst";
 constexpr const char* kBufferId = "com.unlikelyware.notegran.buffer";
 
-// Parameter ids (PLAN.md; plugin.cpp's ParamId).
+// Parameter ids (docs/design.md; plugin.cpp's ParamId).
 enum : clap_id {
     pSync, pDensity, pRate, pLengthMs, pLengthBeats, pOnsetRandom, pPick, pWeight, pOctaves,
     pTranspose, pScatter, pQuantize, pEdo, pRoot, pLevel, pVelSpread, pLenSpread, pVoices,
