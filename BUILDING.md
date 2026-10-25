@@ -61,12 +61,6 @@ The same three commands on both platforms. Everything goes in `build/` (ignored 
 
 The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS.
 
-`clap-validator validate build/NoteGran.clap` should pass with no failures (the skipped tests are
-for audio ports, presets and 64-bit audio, which a note effect doesn't have).
-
-To build against a uw-core change that isn't pushed and pinned yet, add
-`-DNOTEGRAN_UW_CORE_DIR=/path/to/uw-core` to the first command.
-
 ## Installing the plugin for hosts
 
 A plain `cmake --build build` writes nothing outside `build/`. These targets put the plugin where
@@ -104,3 +98,43 @@ For every user instead, the same folders without `~` (`/usr/lib/clap` on Linux,
 `/Library/Audio/Plug-Ins/...` on macOS), with `sudo`. Then rescan in the host. A host that is
 already running keeps the plugin it loaded first: quit and restart it after a rebuild. A plugin you
 built yourself has no quarantine flag, so macOS loads it without the steps a downloaded one needs.
+
+## Options
+
+Pass these to the first command (`cmake -B build ... -DNAME=VALUE`).
+
+| Option | Default | Effect |
+|---|---|---|
+| `NOTEGRAN_UW_CORE_DIR` | `external/uw-core` | Build against another uw-core clone (below). |
+
+## Checking a build
+
+```bash
+clap-validator validate build/NoteGran.clap   # 159 passed, 0 failed, 0 warnings, 33 skipped
+```
+
+The skipped tests are for audio ports, presets and 64-bit audio, which a note effect doesn't have.
+[clap-validator](https://github.com/free-audio/clap-validator) is free-audio's CLAP checker.
+
+## Building against a local uw-core
+
+To try a uw-core change that isn't pushed and pinned yet, point the build at another clone:
+
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNOTEGRAN_UW_CORE_DIR=$HOME/Dev-Common/uw-core
+```
+
+When the change is ready, push uw-core first, then move NoteGran's submodule pin
+(uw-core's README, "Pushing: uw-core first").
+
+## How this differs from the other projects
+
+Every Unlikelyware project builds the same way: `git clone`, `tools/fetch_deps.sh`, the three
+commands under "Build and test", and for a plugin `cmake --build build --target install-clap`. The
+same package list, the same `build/` folder, the same option names (`<PROJECT>_BUILD_VST3`,
+`<PROJECT>_UW_CORE_DIR` and so on). What's different here, and why:
+
+- CLAP only: no VST3 or AUv2 yet (its milestone M9, as Retune's), so no `install-vst3` or `install-auv2`, and no clap-wrapper or VST3 SDK submodules.
+- Five plugins in one `.clap` (Cloud, Chords, Grid, Burst, Buffer), so a host lists five entries from one file.
+- No `_WERROR` option: the five synths have one and their CI turns it on; this project's build still has a few warnings in its own sources, so it comes once they're fixed.
+- No CI yet (ReleaseUMP R1-3, from November 2026).
