@@ -136,5 +136,5 @@ same package list, the same `build/` folder, the same option names (`<PROJECT>_B
 
 - CLAP only: no VST3 or AUv2 yet (its milestone M9, as Retune's), so no `install-vst3` or `install-auv2`, and no clap-wrapper or VST3 SDK submodules.
 - Five plugins in one `.clap` (Cloud, Chords, Grid, Burst, Buffer), so a host lists five entries from one file.
-- No `_WERROR` option: the five synths have one and their CI turns it on; this project's build still has a few warnings in its own sources, so it comes once they're fixed.
+- No `_WERROR` option: the six synths have one and their CI turns it on; this project's build still has a few warnings in its own sources, so it comes once they're fixed.
 - No CI yet (ReleaseUMP R1-3, from November 2026).
