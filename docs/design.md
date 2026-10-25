@@ -281,7 +281,11 @@ Long wanted on its own (2026-10-21); it fits here because a chord is just a set.
   melodic minor (lydian dominant among them) and of harmonic minor, harmonic major, the
   pentatonics, whole tone. One list for every EDO: the mapping does the rest (so open question 3 is
   mostly answered).
-- `Map`: **By fifths** (the default) | **Nearest**.
+- `Map`: **By fifths** | **Nearest**. The default should be **Nearest** (decided 2026-10-25, with
+  KeyboardEDO's scale highlight, which defaults to it; not yet changed here, where it is still By
+  fifths): most people choosing a familiar scale want the notes nearest the ones they know, and By
+  fifths is the deliberate choice of someone after the EDO's own version. Songs saved with By fifths
+  keep it; only new instances start at Nearest.
   - *By fifths:* a degree n fifths from the key goes to n × F mod N steps, F the EDO's own fifth
     (its nearest to 702¢: 11 of 19, 18 of 31, 13 of 22). It keeps the scale's structure (thirds stay
     thirds) and gives the EDO's own character: in 22-EDO, E above C is 436¢ (superpyth). Never ties.
