@@ -55,11 +55,9 @@ Each has its own editor with a live view of the notes held and the grains they m
 ```bash
 git clone https://github.com/erickampman/NoteGran.git
 cd NoteGran
-git submodule update --init --recursive
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja -C build
-ctest --test-dir build --output-on-failure
-ninja -C build install-clap
+tools/fetch_deps.sh
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
 [BUILDING.md](BUILDING.md) has the prerequisites for Linux and macOS.

@@ -2,60 +2,69 @@
 
 NoteGran builds the same way on Linux and macOS: CMake + Ninja, git submodules, C++20. The build
 makes the core library `notegran_core`, the plugin `NoteGran.clap` (NoteGran Cloud, Chords, Grid,
-Burst and Buffer, with their editors), and two test
-programs: `notegran-core-tests` (the core) and `notegran-clap-tests` (a headless host that loads
-the built `.clap`).
+Burst and Buffer, with their editors), and two test programs: `notegran-core-tests` (the core) and
+`notegran-clap-tests` (a headless host that loads the built `.clap`).
 
 ## What you need
 
-| | Linux | macOS |
-|---|---|---|
-| Compiler | GCC 11+ or Clang 14+ (C++20) | Xcode Command Line Tools (Apple Clang) |
-| CMake | 3.21+ | 3.21+ |
-| Ninja | yes | yes |
-| Install | `sudo apt install build-essential cmake ninja-build git` | `xcode-select --install`, then `brew install cmake ninja` |
-| For the editors | `sudo apt install pkg-config libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev` | nothing more |
+**macOS:** macOS 26 or later on Apple Silicon (arm64). Intel Macs aren't supported.
 
-No JACK, ALSA, CoreAudio or CoreMIDI is needed: NoteGran builds uw-core with `UW_CORE_UMP_ONLY`,
-which makes only `uw::ump`. The editors use DPF (`external/dpf`) for drawing only: DGL, NanoVG and
-pugl, as StruckSynth does. DPF is the author's fork (`erickampman/DPF`, which pins the pugl fork
-`erickampman/pugl` with PMU's macOS patches), as every DPF user's is (UmpireDAW's
-`docs/decisions.md`, "DPF fork"); both are private, so cloning needs access to them. Python 3 embeds the logo at build time.
+- The Xcode Command Line Tools: `xcode-select --install`. They bring clang, the macOS SDK, git and
+  Python 3.
+- [Homebrew](https://brew.sh), then `brew install cmake ninja`.
+- Full Xcode isn't needed.
+
+**Linux:** a C++20 compiler (GCC 11+ or Clang 14+), CMake 3.21+, Ninja, Python 3 and git. On Debian
+or Ubuntu this installs them and every library the build needs:
+
+```bash
+sudo apt install build-essential cmake ninja-build pkg-config python3 git \
+  libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxinerama-dev \
+  libxcb1-dev libx11-xcb-dev libxcb-util-dev libxkbcommon-dev libxkbcommon-x11-dev \
+  libfontconfig1-dev libasound2-dev libjack-jackd2-dev \
+  libxfixes-dev libxi-dev libxss-dev libxtst-dev libwayland-dev wayland-protocols \
+  libegl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev libdecor-0-dev libudev-dev \
+  libdbus-1-dev libibus-1.0-dev
+```
+
+It's one list for every Unlikelyware project (the same one CI installs), so it covers more than
+NoteGran needs. On other distros, install the same libraries under their own names.
+
+Of those libraries NoteGran uses only the X11 and OpenGL ones, for the editors. It builds uw-core
+with `UW_CORE_UMP_ONLY`, which makes only `uw::ump` (no JACK, ALSA, CoreAudio or CoreMIDI). The
+editors use DPF (`external/dpf`) for drawing only: DGL, NanoVG and pugl, as StruckSynth does. DPF is
+the author's fork (`erickampman/DPF`, which pins the pugl fork `erickampman/pugl`), as every DPF
+user's is; while the repos are private, cloning needs access to both. Python 3 embeds the logo at
+build time.
 
 ## Get the source
 
 ```bash
 git clone https://github.com/erickampman/NoteGran.git
 cd NoteGran
-git submodule update --init --recursive
+tools/fetch_deps.sh
 ```
 
-`--recursive` matters: DPF has pugl as a submodule of its own.
-
-After a `git pull` that moves a submodule pin, adds a submodule, or changes a submodule's URL, run
-
-```bash
-git submodule sync --recursive
-git submodule update --init --recursive
-```
-
-A plain `git pull --recurse-submodules` moves pins but neither fetches a new submodule nor follows a
-changed URL (as when DPF moved from upstream to the fork, 2026-10-22).
+`tools/fetch_deps.sh` checks out the git submodules at their pinned commits, with DPF's own pugl
+submodule. Run it again after a `git pull` that moves, adds or re-points a submodule: a plain pull
+leaves them where they were.
 
 ## Build and test
 
 ```bash
-cmake -S . -B build -G Ninja
-ninja -C build
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+The same three commands on both platforms. Everything goes in `build/` (ignored by git).
 
 The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS. To
 use it in a host, link it into the CLAP folder (`~/.clap` on Linux,
 `~/Library/Audio/Plug-Ins/CLAP` on macOS):
 
 ```bash
-ninja -C build install-clap
+cmake --build build --target install-clap
 ```
 
 `clap-validator validate build/NoteGran.clap` should pass with no failures (the skipped tests are
