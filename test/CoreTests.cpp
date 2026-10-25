@@ -2252,7 +2252,8 @@ void testBufferFragment() {
     const std::vector<InputEvent> played = {input(0, on2(60, 0x8000)), input(0, on2(64, 0x8000)), input(1000, off2(60)),
                                             input(1000, off2(64)),     input(2400, on2(67, 0x8000)), input(3400, off2(67)),
                                             input(9600, on2(72, 0x8000)), input(10600, off2(72))};
-    auto run = [&](const BufferParams& q, std::int64_t trigger, std::uint32_t sizesSeed) {
+    auto run = [&](const BufferParams& q, std::int64_t trigger, std::uint32_t sizesSeed,
+                   std::vector<InputEvent> extra = {}) {
         auto c = std::make_unique<BufferCore>();
         c->setSampleRate(48000.0);
         c->setParams(q);
@@ -2264,6 +2265,8 @@ void testBufferFragment() {
         frozen.freeze       = true;
         c->setParams(frozen);
         std::vector<InputEvent> t = {input(trigger, on2(36, 0xFFFF, 0, 9)), input(trigger + 10, off2(36, 9))};
+        t.insert(t.end(), extra.begin(), extra.end());
+        std::stable_sort(t.begin(), t.end(), [](const InputEvent& x, const InputEvent& y) { return x.time < y.time; });
         Sizes sizes;
         sizes.lcg = sizesSeed;
         std::size_t next = 0;
@@ -2293,11 +2296,17 @@ void testBufferFragment() {
     CHECK(sameEvents(ev, run(p, 13000, 777)));
     CHECK(sameEvents(ev, run(p, 13000, 31)));
 
-    // Cut at the fragment's end: 3000 long, so 67 (at 2400) sounds 600.
+    // Not cut at the fragment's end: 3000 long, and 67 (at 2400) still sounds its own 1000.
     p.lengthMs = 62.5;
     ev         = run(p, 13000, 5);
+    CHECK(ons(ev).size() == 3);
     for (const NoteEvent& e : ev)
-        if (!e.on && e.key == 67) CHECK(e.time == 15400 + 600);
+        if (!e.on && e.key == 67) CHECK(e.time == 15400 + 1000);
+    // All Notes Off while it sounds ends it there.
+    ev = run(p, 13000, 5, {input(15900, m1(0xB, 0, 123, 0))});
+    for (const NoteEvent& e : ev)
+        if (!e.on && e.key == 67) CHECK(e.time == 15900);
+    checkPlayable(ev, 32, true);
     // From 0.8 of the window (9600): only 72.
     p.lengthMs = 100.0;
     p.position = kOne16 * 4 / 5;

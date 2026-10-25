@@ -44,7 +44,7 @@
 ## M6: NoteGran Buffer
 - [x] Capture ring, Freeze, Position / Scan / Spray, Note and Fragment grains, Gate; tested
 - [x] Heard: StageHand looper feeding it, Freeze, REAPER (12-EDO only), Bitwig (microtonal output intact)
-- [ ] Fragment notes keep their real length instead of being cut at the grain's end (decided 2026-10-24); replaced or reset fragments still end their sounding notes
+- [x] Fragment notes keep their real length instead of being cut at the grain's end (decided 2026-10-24); replaced or reset fragments still end their sounding notes
 - [ ] An editor view of its own: the capture on a timeline, the read point and spray, the fragment's span
 
 ## M7: Editors

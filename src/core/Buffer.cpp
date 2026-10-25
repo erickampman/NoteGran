@@ -160,9 +160,9 @@ void BufferCore::startFragment(const Grain& g) noexcept {
     for (std::int64_t s = oldest(); s < written_ && f.count < kMaxNotes; ++s) {
         const Note& n = noteAt(s);
         if (n.start < from || n.start > e || n.start < r || n.start >= r + len) continue;
-        const std::int64_t own = n.end == kOpen ? g.time - n.start : n.end - n.start;   // so far, if held
-        f.notes[static_cast<std::size_t>(f.count++)] =
-            FragmentNote{n.start - r, std::max<std::int64_t>(std::min(own, r + len - n.start), 1), n.member};
+        // Its own length, past the fragment's end too (so far, if held).
+        const std::int64_t own = n.end == kOpen ? g.time - n.start : n.end - n.start;
+        f.notes[static_cast<std::size_t>(f.count++)] = FragmentNote{n.start - r, std::max<std::int64_t>(own, 1), n.member};
     }
     f.active = f.count > 0;
     if (f.active) collectFragment(slot, nullptr);

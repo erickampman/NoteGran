@@ -26,11 +26,12 @@
 //   with Octaves, Transpose, Scatter and Quantize, its velocity times Level, and Length (or, with
 //   Length from Source, its own length, provisional while held).
 // - Grain Fragment: the stretch of the capture Length long from the read point: every note
-//   starting in it, replayed with its timing from the grain's time, each cut at the stretch's end.
+//   starting in it, replayed with its timing from the grain's time, each its own length (past the
+//   stretch's end too).
 //   One pitch draw for the whole fragment (a chord stays a chord), quantized per note. The notes
 //   are copied when the grain starts (up to 64), so a later capture can't change a fragment
 //   playing. Up to 32 fragments at once; a 33rd replaces the oldest, whose notes still to come are
-//   dropped. A fragment plays out whatever Gate does.
+//   dropped (those sounding end at their length). A fragment plays out whatever Gate does.
 // - Gate on: a grain (not a fragment's notes) plays only while a note is held (or latched) on the
 //   set channels. With a trigger channel, its note-ons are the grains and Gate doesn't apply.
 // - All Notes Off, a reset and the transport stopping clear the capture.

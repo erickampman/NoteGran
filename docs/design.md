@@ -427,7 +427,7 @@ its natural producer; Buffer hears the looper's output and captures it as it pla
     Scatter), its velocity (times Level), and `Length`, or its own length when `Length` is at
     "source".
   - **Fragment**: a grain is the stretch of the capture `Length` long that starts at the read point:
-    every note starting in it, replayed with its timing, cut at the grain's end. A chord stays a chord,
+    every note starting in it, replayed with its timing and its own length. A chord stays a chord,
     and a short fragment of a run becomes a figure. The nearest thing to an audio grain, which reads a
     stretch of sound and not one sample.
 - An empty capture makes nothing. Dry defaults to on here: the capture is usually of a part being
@@ -450,9 +450,10 @@ its natural producer; Buffer hears the looper's output and captures it as it pla
   Transpose, Scatter and Quantize, velocity × Level, and Length, or its own length with `Length
   from` Source (provisional while held).
 - **Fragment:** the notes starting in [read point, + Length) are copied (up to 64) when the grain
-  starts, each replayed at the grain's time + its offset, cut at the fragment's end. One pitch draw
-  for the fragment (the grain's index), so a chord stays a chord; Quantize per note; velocity draws
-  per note. Up to 32 fragments; a 33rd replaces the oldest, whose notes to come are dropped. A
+  starts, each replayed at the grain's time + its offset, its own length (past the fragment's end
+  too; decided 2026-10-24, built 2026-10-25). One pitch draw for the fragment (the grain's index),
+  so a chord stays a chord; Quantize per note; velocity draws per note. Up to 32 fragments; a 33rd replaces the oldest, whose notes to come are dropped (those
+  sounding end at their length; All Notes Off, reset and the transport stopping end them). A
   fragment plays out whatever Gate does. An open note's length is how long it's been held so far.
 - All Notes Off, reset and the transport stopping clear the capture. Defaults: Window 4 s / 8
   beats, Position 0.5, Scan 0, Spray 0.1, Density 8/s or 4 per beat, Onset random 0.5, Note, Length
@@ -643,8 +644,8 @@ position, turning each `NoteEvent` into its own events.
    any EDO (decided 2026-10-21, Chords). Still open: which "native" EDO scales (MOS scales, e.g.
    19-EDO's or 31-EDO's own) to add beside them.
 4. **Chords' "related" chords:** which moves first, and how they're defined outside 12-EDO.
-5. **Buffer's Fragment mode:** should a fragment keep its notes' own lengths when they run past the
-   grain's end, or always cut them there? (Proposed: cut.)
+5. ~~**Buffer's Fragment mode:**~~ Decided 2026-10-24: a fragment's notes keep their own lengths
+   when they run past the grain's end.
 6. **Echo:** when does it answer (after a gap of how long?), how long does it play, and is its model
    kept in the plugin's state, unlike the capture?
 7. **Output channels for MPE synths:** spread grains over channels (an MPE zone) so each can be bent
