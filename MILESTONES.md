@@ -60,6 +60,8 @@
 
 ## M9: Other formats (clap-wrapper)
 - [ ] VST3 and AUv2 (macOS) via clap-wrapper, MIDI 1.0 (rounded) only, as Retune's M4
+- [ ] Build them, as Retune does: clap-wrapper and the VST3 SDK as submodules (`tools/fetch_deps.sh` fetching only the SDK's base, cmake, pluginterfaces and public.sdk); `NOTEGRAN_BUILD_VST3` (on) and `NOTEGRAN_BUILD_AUV2` (on on macOS only) making `NoteGran.vst3` and `NoteGran.component` (an AUv2 MIDI effect, `aumi`); `install-vst3` (symlink) and `install-auv2` (copy) beside `install-clap`; auval and Steinberg's validator pass. Needed for the VST3/AUv2 preview, 0.9.1 (ReleaseUMP R0-5, R4-13)
+- [ ] BUILDING.md revamped to match the other plugins' (Retune's shape): what the build makes in every format, a VST3 and AUv2 options table, and "Installing the plugin for hosts" with the CLAP, VST3 and AUv2 install commands together in one block and the plugin folders for each format on Linux and macOS
 
 ## Later
 - [ ] NoteGran Echo: a Markov generator that answers in the style of what's played
