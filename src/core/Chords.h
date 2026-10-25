@@ -36,7 +36,7 @@ enum class Voicing : std::uint8_t {
 struct ChordsParams {
     std::size_t scale        = 0;              // index into familiarScales()
     int         keyFifths    = 0;              // the key on the chain of fifths: C 0, G 1, F −1, ...
-    MapBy       map          = MapBy::Fifths;
+    MapBy       map          = MapBy::Nearest;
     int         edo          = 12;             // 1 .. 96
     int         origin       = 9;              // pitch class of the EDO's step 0: A
     InputMatch  input        = InputMatch::Familiar;

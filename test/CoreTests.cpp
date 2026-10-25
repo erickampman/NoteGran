@@ -1629,6 +1629,7 @@ void testChordsMicrotonal() {
     p.scale  = scaleIndex("Lydian dominant");
     p.edo    = 19;
     p.origin = 0;
+    p.map    = MapBy::Fifths;   // the default is Nearest
     c.setParams(p);
     const EdoScale& s = c.scale();
     std::array<std::int32_t, ChordsCore::kMaxSize> got{};

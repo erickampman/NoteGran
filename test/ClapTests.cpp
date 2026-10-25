@@ -621,6 +621,8 @@ void testChords() {
     CHECK(r.params->value_to_text(r.plugin, cOrigin, 9, text, sizeof(text)) && std::strcmp(text, "A") == 0);
     double v = -1;
     CHECK(r.params->text_to_value(r.plugin, cScale, "Lydian dominant", &v) && v == 10);
+    clap_param_info_t info{};
+    CHECK(r.params->get_info(r.plugin, cMap, &info) && info.default_value == 1);   // Nearest
 
     // Defaults: C major in 12-EDO, triads. MIDI 1.0 C gives C E G in MIDI 1.0; C# passes; a CC passes.
     Input in;
@@ -641,8 +643,10 @@ void testChords() {
     }
     CHECK(r.lastStatus == CLAP_PROCESS_SLEEP);
 
-    // C lydian dominant in 19-EDO from C: MIDI 1.0 D in, MIDI 2.0 D major out, on 19-EDO steps.
+    // C lydian dominant in 19-EDO from C, mapped by fifths: MIDI 1.0 D in, MIDI 2.0 D major out, on
+    // 19-EDO steps.
     r.set(cScale, 10);
+    r.set(cMap, 0);
     r.set(cEdo, 19);
     r.set(cOrigin, 0);
     Input d;

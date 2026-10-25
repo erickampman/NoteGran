@@ -138,7 +138,7 @@ enum ChordsParamId : std::uint32_t {
 const ParamSpec kChordsParams[] = {
     {"Scale", "scale", 0, double(familiarScaleCount() - 1), 0, Kind::Menu, kScaleLabels.data(), ""},
     {"Key", "key", 0, 14, 7, Kind::Menu, kKeyLabels, ""},
-    {"Map", "map", 0, 1, 0, Kind::Menu, kMapLabels, ""},
+    {"Map", "map", 0, 1, 1, Kind::Menu, kMapLabels, ""},
     {"EDO", "edo", 1, 96, 12, Kind::Stepped, nullptr, ""},
     {"Origin", "origin", 0, 11, 9, Kind::Menu, kRootLabels, ""},
     {"Input", "input", 0, 1, 0, Kind::Menu, kInputLabels, ""},
