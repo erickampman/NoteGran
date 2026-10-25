@@ -59,16 +59,48 @@ ctest --test-dir build --output-on-failure
 
 The same three commands on both platforms. Everything goes in `build/` (ignored by git).
 
-The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS. To
-use it in a host, link it into the CLAP folder (`~/.clap` on Linux,
-`~/Library/Audio/Plug-Ins/CLAP` on macOS):
-
-```bash
-cmake --build build --target install-clap
-```
+The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS.
 
 `clap-validator validate build/NoteGran.clap` should pass with no failures (the skipped tests are
 for audio ports, presets and 64-bit audio, which a note effect doesn't have).
 
 To build against a uw-core change that isn't pushed and pinned yet, add
 `-DNOTEGRAN_UW_CORE_DIR=/path/to/uw-core` to the first command.
+
+## Installing the plugin for hosts
+
+A plain `cmake --build build` writes nothing outside `build/`. These targets put the plugin where
+hosts look for it:
+
+```bash
+cmake --build build --target install-clap
+```
+
+| | Linux | macOS |
+|---|---|---|
+| CLAP | `~/.clap` | `~/Library/Audio/Plug-Ins/CLAP` |
+
+`install-clap` symlinks the plugin in `build/`, so a host picks up a rebuild after a rescan. The
+link points into this clone: delete the clone and the host loses the plugin, and running the
+target in another build folder points the host there instead.
+
+To keep the plugin without the clone, copy it instead (the `rm` clears a link the targets left):
+
+```bash
+# Linux
+mkdir -p ~/.clap
+rm -rf ~/.clap/NoteGran.clap
+cp build/NoteGran.clap ~/.clap/
+```
+
+```bash
+# macOS
+mkdir -p ~/Library/Audio/Plug-Ins/CLAP
+rm -rf ~/Library/Audio/Plug-Ins/CLAP/NoteGran.clap
+cp -R build/NoteGran.clap ~/Library/Audio/Plug-Ins/CLAP/
+```
+
+For every user instead, the same folders without `~` (`/usr/lib/clap` on Linux,
+`/Library/Audio/Plug-Ins/...` on macOS), with `sudo`. Then rescan in the host. A host that is
+already running keeps the plugin it loaded first: quit and restart it after a rebuild. A plugin you
+built yourself has no quarantine flag, so macOS loads it without the steps a downloaded one needs.
