@@ -16,6 +16,9 @@
 // again. Edits go out through DPF's editParameter / setParameterValue, which the UIExporter hands
 // to the seam as gestures and values.
 
+#ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>   // the editor's own timer when the host has none
+#endif
 #include "DistrhoUI.hpp"
 
 #include "src/DistrhoUIInternal.hpp"   // DPF's UIExporter (DPF_ROOT_DIR/distrho is on the include path)
@@ -29,6 +32,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+
 
 #include "Dropdown.hpp"
 #include "EmbeddedResources.hpp"   // build-time: the logo's bytes
@@ -916,6 +920,9 @@ struct GuiState {
     double   appliedScale = 0.0;
     bool     timerRegistered = false;
     clap_id  timerId         = 0;
+#ifdef __APPLE__
+    CFRunLoopTimerRef ownTimer = nullptr;   // when the host has no timer-support (startIdleTimer)
+#endif
 };
 
 #ifdef __APPLE__
@@ -951,6 +958,44 @@ const clap_host_timer_support_t* hostTimer(const clap_plugin_t* plugin) {
     return static_cast<const clap_host_timer_support_t*>(host->get_extension(host, CLAP_EXT_TIMER_SUPPORT));
 }
 
+// The editor's timer (ng_gui_on_timer) reads the values and what's playing, and pumps DPF/pugl:
+// without it the views never move. It's the host's timer when the host has timer-support. Bitwig on
+// macOS has none, so there the editor runs its own on the main run loop, in the common modes so it
+// keeps firing while a menu is up, as the synths do. Started at set_parent and at show, since not
+// every host calls show for an embedded editor.
+void startIdleTimer(const clap_plugin_t* plugin, GuiState* gui) {
+    if (gui->timerRegistered) return;
+    if (const auto* timer = hostTimer(plugin))
+        if (timer->register_timer(ng_plugin_host(plugin), 16 /* ~60 fps */, &gui->timerId)) {
+            gui->timerRegistered = true;
+            return;
+        }
+#ifdef __APPLE__
+    if (gui->ownTimer != nullptr) return;
+    CFRunLoopTimerContext context = {0, gui, nullptr, nullptr, nullptr};
+    gui->ownTimer = CFRunLoopTimerCreate(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 0.016, 0.016, 0, 0,
+                                         [](CFRunLoopTimerRef, void* info) {
+                                             ng_gui_on_timer(static_cast<GuiState*>(info)->plugin, 0);
+                                         },
+                                         &context);
+    if (gui->ownTimer != nullptr) CFRunLoopAddTimer(CFRunLoopGetMain(), gui->ownTimer, kCFRunLoopCommonModes);
+#endif
+}
+
+void stopIdleTimer(const clap_plugin_t* plugin, GuiState* gui) {
+    if (gui->timerRegistered) {
+        if (const auto* timer = hostTimer(plugin)) timer->unregister_timer(ng_plugin_host(plugin), gui->timerId);
+        gui->timerRegistered = false;
+    }
+#ifdef __APPLE__
+    if (gui->ownTimer != nullptr) {
+        CFRunLoopTimerInvalidate(gui->ownTimer);
+        CFRelease(gui->ownTimer);
+        gui->ownTimer = nullptr;
+    }
+#endif
+}
+
 bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool isFloating) {
     return !isFloating && std::strcmp(api, kWindowApi) == 0;
 }
@@ -976,8 +1021,7 @@ void gui_destroy(const clap_plugin_t* plugin) {
     auto* gui = static_cast<GuiState*>(ng_plugin_get_gui(plugin));
     ng_plugin_set_gui(plugin, nullptr);
     if (gui == nullptr) return;
-    if (gui->timerRegistered)
-        if (const auto* timer = hostTimer(plugin)) timer->unregister_timer(ng_plugin_host(plugin), gui->timerId);
+    stopIdleTimer(plugin, gui);
     delete gui;   // the UIExporter, and the editor with it
 }
 
@@ -1048,6 +1092,7 @@ bool gui_set_parent(const clap_plugin_t* plugin, const clap_window_t* window) {
         gCreatingFor = nullptr;
         applySize(gui);
     }
+    startIdleTimer(plugin, gui);
     return true;
 }
 
@@ -1057,19 +1102,14 @@ void gui_suggest_title(const clap_plugin_t*, const char*) {}
 bool gui_show(const clap_plugin_t* plugin) {
     auto* gui = static_cast<GuiState*>(ng_plugin_get_gui(plugin));
     if (gui == nullptr || !gui->exporter) return false;
-    if (!gui->timerRegistered)
-        if (const auto* timer = hostTimer(plugin))
-            gui->timerRegistered = timer->register_timer(ng_plugin_host(plugin), 16 /* ~60 fps */, &gui->timerId);
+    startIdleTimer(plugin, gui);
     return true;
 }
 
 bool gui_hide(const clap_plugin_t* plugin) {
     auto* gui = static_cast<GuiState*>(ng_plugin_get_gui(plugin));
     if (gui == nullptr || !gui->exporter) return false;
-    if (gui->timerRegistered) {
-        if (const auto* timer = hostTimer(plugin)) timer->unregister_timer(ng_plugin_host(plugin), gui->timerId);
-        gui->timerRegistered = false;
-    }
+    stopIdleTimer(plugin, gui);
     return true;
 }
 
