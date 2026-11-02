@@ -5,6 +5,8 @@ Unlikelyware that make new notes from the notes they hear. Hold a chord and Note
 scatters grains picked from it. Play a phrase and NoteGran Buffer replays fragments of it. The
 synth after it makes the sound; NoteGran makes no audio.
 
+![NoteGran Cloud's editor](docs/screenshot.png)
+
 | | |
 |---|---|
 | Effects | Cloud, Chords, Grid, Burst and Buffer, in one `.clap` |
