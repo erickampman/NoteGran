@@ -73,7 +73,13 @@ protected:
             // Label sits in the reserved band above the box (always inside bounds).
             fontFace(NANOVG_DEJAVU_SANS_TTF);
             textAlign(ALIGN_CENTER | ALIGN_TOP);
+            // NoteGran: a long label shrinks, leaving a gap to the next control's (cells abut).
             fontSize(13.0f * fUiScale);
+            Rectangle<float> lb;
+            textBounds(0, 0, fLabel.c_str(), nullptr, lb);
+            const float lroom = w - 8.0f * fUiScale;
+            if (lb.getWidth() > lroom && lb.getWidth() > 0.0f)
+                fontSize(std::fmax(13.0f * fUiScale * 0.6f, 13.0f * fUiScale * lroom / lb.getWidth()));
             fillColor(Color(176, 182, 190));
             text(w * 0.5f, by - fLabelH + 1.0f, fLabel.c_str(), nullptr);
         }

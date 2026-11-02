@@ -567,6 +567,14 @@ private:
 
     float scale() const { return getWidth() / static_cast<float>(fLayout.width); }
 
+    // A knob's caption: its parameter's name, shortened where that's too long for the narrow
+    // cells the spreads sit in (hosts still show the full name).
+    static const char* caption(const char* name) {
+        if (std::strcmp(name, "Velocity spread") == 0) return "Vel spread";
+        if (std::strcmp(name, "Length spread") == 0) return "Len spread";
+        return name;
+    }
+
     // An Off/On menu is a toggle, any other menu a dropdown, a number or a step a knob; in a
     // table, a number is a slider and a menu a dropdown without a caption.
     SubWidget* makeControl(Widget* parent, uint32_t id, bool inTable) {
@@ -605,7 +613,7 @@ private:
         } else {
             c.knob = std::make_unique<Knob>(parent, this);
             c.knob->setId(id);
-            c.knob->setLabel(c.info.name);
+            c.knob->setLabel(caption(c.info.name));
             c.knob->setAccentColor(fAccent);
             // A wide range from above 0 turns logarithmically (Density, the lengths).
             const bool log = c.info.min > 0.0 && c.info.max / c.info.min >= 100.0;

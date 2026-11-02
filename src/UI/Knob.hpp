@@ -154,7 +154,8 @@ protected:
 
             // Label on top, tinted toward the module accent.
             textAlign(ALIGN_CENTER | ALIGN_TOP);
-            fitFont(fLabel.c_str(), 12.0f * fTextScale, w - 2.0f);   // NoteGran: long labels shrink
+            // NoteGran: long labels shrink, leaving a gap to the next knob's (cells abut)
+            fitFont(fLabel.c_str(), 12.0f * fTextScale, w - 8.0f * fTextScale);
             fillColor(fEnabled ? lighten(fAccent, 0.45f) : Color(112, 117, 124));
             text(cx, top, fLabel.c_str(), nullptr);
 
