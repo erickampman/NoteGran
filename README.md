@@ -93,3 +93,10 @@ Questions and bug reports go to [GitHub Issues](https://github.com/erickampman/N
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Trademarks
+
+VST® is a registered trademark of Steinberg Media Technologies GmbH. Audio Units, Logic, Mac and
+macOS are trademarks of Apple Inc., registered in the U.S. and other countries. Linux is the
+registered trademark of Linus Torvalds in the U.S. and other countries. Other product names are
+trademarks of their owners, named here only to say what works with what.

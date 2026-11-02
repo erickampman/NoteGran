@@ -631,7 +631,7 @@ position, turning each `NoteEvent` into its own events.
    `clap-validator` clean. Still to hear: StageHand, KeyboardEDO → Burst → a synth; Loop and Stop;
    a trigger channel.
 6. **NoteGran Buffer.** Note mode first, then Fragment.
-7. **AUv2 / VST3 via clap-wrapper**, MIDI 1.0 (rounded) only, as Retune's M4. Retune's table of what
+7. **AUv2 / VST® 3 via clap-wrapper**, MIDI 1.0 (rounded) only, as Retune's M4. Retune's table of what
    the wrapper does with a note effect applies unchanged.
 8. **Later** (above), each its own phase, Chords' window among them.
 
@@ -656,3 +656,5 @@ position, turning each `NoteEvent` into its own events.
 9. ~~**Dry in MIDI 1.0:**~~ Decided 2026-10-21: a grain on the key and channel of a dry
    (passed-through) note is skipped.
 10. ~~**Chords from MIDI 1.0 input in an EDO other than 12**~~: decided 2026-10-21, sent as MIDI 2.0.
+
+VST is a registered trademark of Steinberg Media Technologies GmbH.
