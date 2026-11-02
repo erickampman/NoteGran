@@ -567,11 +567,12 @@ private:
 
     float scale() const { return getWidth() / static_cast<float>(fLayout.width); }
 
-    // A knob's caption: its parameter's name, shortened where that's too long for the narrow
-    // cells the spreads sit in (hosts still show the full name).
+    // A knob's caption: its parameter's name, shortened where that's too long for its cell and
+    // would shrink well below its neighbours' (hosts still show the full name).
     static const char* caption(const char* name) {
         if (std::strcmp(name, "Velocity spread") == 0) return "Vel spread";
         if (std::strcmp(name, "Length spread") == 0) return "Len spread";
+        if (std::strcmp(name, "Trigger channel") == 0) return "Trig channel";
         return name;
     }
 
