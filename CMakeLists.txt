@@ -47,15 +47,14 @@ target_compile_options(dgl-opengl PRIVATE -w)   # vendored: its warnings aren't 
 target_compile_definitions(dgl-opengl PUBLIC DGL_NAMESPACE=NoteGranDGL)
 
 # resources/* compiled in as bytes with DPF's res2c.py: the logo, read with NanoVG at run time, and
-# the help page, which each editor's Help button writes out and opens. Not help.md: res2c.py names
-# each symbol by the file's stem, so it would collide with help.html.
+# the five effects' help pages, which each editor's Help button writes out and opens. Not help.md:
+# res2c.py names each symbol by the file's stem.
 #
-# help.html is generated from help.md (beside it) by pandoc with the Unlikelyware products' shared
-# template, and committed; after editing help.md, run from here:
-#   pandoc -f commonmark_x-smart -t html5 \
-#     --template ../../Dev-Audio/Shared/Help/help-template.html \
-#     --metadata pagetitle=help-NoteGran resources/help.md -o resources/help.html
-# (the template, in Dev-Audio beside Dev-MIDI, inlines its help.css).
+# help-<effect>.html are generated from help.md (beside them) by tools/help_pages.py, which runs
+# pandoc with the Unlikelyware products' shared template, and committed; after editing help.md,
+# run from here:
+#   tools/help_pages.py ../../Dev-Audio/Shared/Help/help-template.html
+# (the template, in Dev-Audio beside Dev-MIDI, inlines its help.css; that is the default path).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(NOTEGRAN_RESOURCES_HPP "${CMAKE_BINARY_DIR}/generated/EmbeddedResources.hpp")
 set(NOTEGRAN_RESOURCES_CPP "${CMAKE_BINARY_DIR}/generated/EmbeddedResources.cpp")

@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>help-NoteGran-Burst</title>
+    <style>
+:root {
+  --bg: #0f1115;
+  --page: #141823;
+  --text: #e6e2d8;
+  --muted: rgba(230, 226, 216, 0.72);
+  --border: rgba(230, 226, 216, 0.12);
+  --shadow: rgba(0, 0, 0, 0.35);
+
+  /* New: "card" surface (slightly lighter than page) */
+  --card: rgba(255, 255, 255, 0.04);
+  --card-hover: rgba(255, 255, 255, 0.055);
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #fbfaf7;
+}
+
+/* Page container — new */
+.page {
+    max-width: 900px;       /* or whatever you prefer */
+    margin: 0 auto;         /* center it */
+    padding: 2rem;          /* spacing around content */
+}
+
+/* Basic typography */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: #222;
+
+    /* REMOVE padding: now applied by .page */
+    /* padding: 1rem; */
+}
+
+/* Headings */
+h1, h2, h3 {
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+/* Paragraph spacing */
+p {
+    margin: 0.75rem 0;
+}
+
+/* Lists */
+ul, ol {
+    margin: 0.75rem 0 0.75rem 1.5rem;
+}
+
+/* Code blocks */
+pre, code {
+    font-family: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+pre {
+    background: #f0f0f0;
+    padding: 1rem;
+    overflow-x: auto;
+    border-radius: 6px;
+}
+
+code {
+    background: #ececec;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+}
+
+/* Don't double-style code inside pre blocks */
+pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+}
+
+/* Hook for language-specific styles (future syntax highlighting) */
+code[class^="language-"],
+code[class*=" language-"] {
+    /* placeholder: add colors later if you want */
+}
+
+/* Blockquotes */
+blockquote {
+    margin: 1.5rem 0;
+    padding-left: 1rem;
+    border-left: 3px solid #ccc;
+    color: #555;
+    font-style: italic;
+}
+
+/* Horizontal rule */
+hr {
+    border: none;
+    border-top: 1px solid #ccc;
+    margin: 2rem 0;
+}
+
+.module-container {
+  display: flex; 
+  justify-content: center; 
+}
+
+/* Images */
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 1rem 0;
+    border-radius: 12px;
+}
+
+.disclosure-content {
+  padding: 0.5em 1em;
+}
+
+.disclosure-content > p:first-child {
+  margin-top: 0;
+}
+
+.disclosure-content > p:last-child {
+  margin-bottom: 0;
+}
+
+:target {
+  scroll-margin-top: 1.5rem;
+  outline: 2px solid rgba(0,0,0,0.15);
+  border-radius: 8px;
+}
+
+figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+figure.float-right {
+  float: right;
+  margin: 0 0 1rem 1rem;
+  max-width: 45%;
+}
+
+figure.float-left {
+  float: left;
+  margin: 0 1rem 1rem 0;
+  max-width: 45%;
+}
+
+.clear {
+  clear: both;
+}
+
+figure {
+    display: inline-block;     /* shrink-wrap to image width */
+    margin: 1em 0;
+    text-align: center;        /* center caption under image */
+}
+
+figure img {
+    display: block;            /* prevent inline baseline quirks */
+    max-width: 100%;
+    height: auto;
+}
+
+figcaption {
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 0.4em;
+}
+
+a.embed {
+  display: inline-block;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.05);
+  text-decoration: none;
+}
+
+.callout-note {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1em;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+/* The generic rounded-rect card */
+.card {
+  display: block;                 /* important for headings */
+  padding: 0.9rem 1rem;
+  margin: 1.1rem 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 10px 22px var(--shadow);
+}
+
+/* Only hover cards that are meant to be interactive */
+.card.is-interactive:hover {
+  background: var(--card-hover);
+}
+
+
+/* Make sure headings don’t add their own extra margins inside cards */
+.card h1, .card h2, .card h3,
+h1.card, h2.card, h3.card {
+  margin: 0;
+}
+
+.module-header {
+  position: relative;
+  display: flex;
+  justify-content: center;   /* center the title */
+  align-items: baseline;
+}
+
+.module-back {
+  position: absolute;
+  left: 0;
+  font-size: 0.85em;
+  opacity: 0.6;
+  text-decoration: none;
+  letter-spacing: 0.03em;
+}
+
+.module-back:hover {
+  opacity: 1.0;
+}
+
+.module-title {
+  margin: 0;
+  text-align: center;
+}
+
+/* breadcrumb trail */
+.breadcrumb { font-size: 0.85em; opacity: 0.7; letter-spacing: 0.03em; margin-bottom: 0.35rem; }
+.breadcrumb a { text-decoration: none; color: inherit; opacity: 0.75; }
+.breadcrumb a:hover { opacity: 1.0; }
+.breadcrumb .crumb-current { opacity: 1.0; }
+
+
+/* Tables (pipe tables from pandoc) */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  font-size: 0.95em;
+}
+
+th, td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th {
+  border-bottom: 2px solid #bbb;
+  font-weight: 600;
+}
+
+tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.025);
+}    </style>
+</head>
+<body>
+<div class="page">
+<div style="display: flex; align-items: center; gap: 0.75rem; margin: 1.5rem 0 0.5rem;">
+  <a href="https://www.unlikelyware.com" target="_blank" rel="noopener noreferrer">
+    <img src="Unlikelyware.png" alt="Unlikelyware" style="width: 56px; height: auto; border-radius: 10px; margin: 0; display: block;">
+  </a>
+  <h1 style="margin: 0;">NoteGran Burst</h1>
+</div>
+
+<p>
+  <em>NoteGran is a set of five CLAP note effects on macOS and Linux: Cloud, Chords, Grid, Burst and Buffer. Fine adjustment of a knob uses the Control key on both: on the Mac that is Control, not Cmd.</em>
+</p>
+
+<section id="on-this-page" class="callout callout-note card">
+<h2>On This Page</h2>
+<p><a href="#overview">Overview</a> · <a href="#getting-started">Getting
+Started</a> · <a href="#window">The Window</a> · <a
+href="#burst">Burst</a></p>
+<p><strong>Shared settings —</strong> <a href="#timing">Timing</a> · <a
+href="#pitch">Pitch</a> · <a href="#dynamics">Dynamics</a> · <a
+href="#input">Input</a></p>
+<p><strong>Playing —</strong> <a href="#hosts">Hosts and Microtones</a>
+· <a href="#midi">Notes and MIDI</a> · <a href="#tips">Tips</a> · <a
+href="#troubleshooting">Troubleshooting</a></p>
+<p><strong>The other effects —</strong> Cloud · Chords · Grid · Buffer:
+each has a page of its own, opened from the <strong>?</strong> box in
+its editor.</p>
+</section>
+<section id="overview" class="callout callout-note card">
+<h2>Overview</h2>
+<p>NoteGran is <strong>granular synthesis with notes as the
+grains</strong>. Each effect makes no sound of its own: it sits in front
+of a synth, listens to the notes you hold, and plays new notes made from
+them. The synth after it makes the sound.</p>
+<table>
+<thead>
+<tr>
+<th>Effect</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cloud</strong></td>
+<td>Scatters grains whose pitches are picked from the notes you hold: at
+random, up, down or as played. Evenly on the beat it's an arpeggiator;
+with more randomness it thins into a cloud</td>
+</tr>
+<tr>
+<td><strong>Chords</strong></td>
+<td>Turns each note into a chord of a scale, in 12-EDO or mapped into
+any EDO</td>
+</tr>
+<tr>
+<td><strong>Grid</strong></td>
+<td>Grains on a beat grid whose places have tiers (downbeat, beat,
+off-beat…), each with its own probability, level, pick and offset</td>
+</tr>
+<tr>
+<td><strong><a href="#burst">Burst</a></strong></td>
+<td>Each new note starts a phrase of grains, shaped by a fractal you
+edit in its window</td>
+</tr>
+<tr>
+<td><strong>Buffer</strong></td>
+<td>Records what you played in the last few seconds or beats and replays
+grains from it, a note or a fragment at a time</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The notes you hold are the input</strong> (the <em>set</em>):
+a keyboard, KeyboardEDO, a sequencer or looper, or a host clip. Effects
+can be chained: Chords in front of Cloud, Grid or Burst makes grains
+from chords.</p>
+<p><strong>Every grain is a note on the synth</strong>, so each effect
+has a <strong>Voices</strong> limit (default 8) and ends every note it
+starts.</p>
+</section>
+<section id="getting-started" class="callout callout-note card">
+<h2>Getting Started</h2>
+<ol type="1">
+<li><strong>Put a NoteGran effect in front of a synth</strong>: in
+Bitwig, a note FX before the instrument; in REAPER, before the
+instrument in the track's FX chain; in StageHand, the row's <strong>MIDI
+FX</strong> menu. Start with <strong>Cloud</strong>.</li>
+<li><strong>Hold a chord.</strong> Its notes light in the view, and
+grains start rising from them.</li>
+<li><strong>Turn Density</strong> to play more or fewer grains, and
+<strong>Length</strong> for longer or shorter ones.</li>
+<li><strong>Choose a Pick:</strong> Up or Down with <strong>Onset
+random</strong> at 0 is an arpeggio; Random with more Onset random and
+some <strong>Scatter</strong> is a cloud.</li>
+<li><strong>Tick Dry</strong> to hear the chord itself as well.</li>
+</ol>
+<p>The host saves every setting with its project. What you held, and
+Buffer's recording, aren't saved: a new session starts empty.</p>
+</section>
+<section id="window" class="callout callout-note card">
+<h2>The Window</h2>
+<p><strong>The header:</strong> the Unlikelyware logo (a click opens
+unlikelyware.com), <strong>NoteGran</strong> and the effect's name in
+its colour (Cloud steel blue, Chords violet, Grid amber, Burst teal,
+Buffer rose), and <strong>Help</strong> at the right (the
+<strong>?</strong> box that opens this effect's help page in your
+browser).</p>
+<p><strong>Below it:</strong> the effect's view (or views) at the top,
+then its settings in titled groups. Each knob shows its name above it
+and its value below.</p>
+<ul>
+<li><strong>Dimmed settings</strong> have no effect just now: EDO and
+Root unless Quantize is EDO, Weight unless Pick is Random, and others
+noted below.</li>
+<li><strong>Sync</strong> swaps knobs: with <strong>Free</strong>,
+Density and Length (ms); with <strong>Beats</strong>, Rate and Length
+(beats).</li>
+</ul>
+<p><strong>Resizing:</strong> drag the host window's corner. The window
+keeps its shape and scales everything in it, down to 0.8 of its
+size.</p>
+</section>
+<details class="disclosure">
+<summary class="disclosure-title subtle">Knobs, sliders, menus and checkboxes</summary>
+
+<div class="disclosure-content">
+<table>
+<thead>
+<tr>
+<th>Gesture</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Drag a knob up or down</td>
+<td>Change the value</td>
+</tr>
+<tr>
+<td>Control-drag a knob</td>
+<td>Ten times finer (Control on the Mac too)</td>
+</tr>
+<tr>
+<td>Double-click or Shift-click a knob</td>
+<td>Back to the default</td>
+</tr>
+<tr>
+<td>Drag a slider (Grid's tiers)</td>
+<td>Moves it as far as the pointer moves; a click never jumps it</td>
+</tr>
+<tr>
+<td>Shift-drag a slider</td>
+<td>Finer</td>
+</tr>
+<tr>
+<td>Double-click a slider</td>
+<td>Back to the default</td>
+</tr>
+<tr>
+<td>Scroll over a knob or slider</td>
+<td>Nudges it</td>
+</tr>
+<tr>
+<td>Click a menu</td>
+<td>Opens its list; click a choice, or click elsewhere to close it</td>
+</tr>
+<tr>
+<td>Click a checkbox</td>
+<td>Turns it on or off</td>
+</tr>
+</tbody>
+</table>
+<p>A knob with a wide range from above zero (Density, the lengths,
+Duration, Window in seconds) turns on a logarithmic scale, so the low
+end gets as much travel as the high end.</p>
+</div>
+</details>
+
+<section id="burst" class="callout callout-note card">
+<h2>Burst</h2>
+<p><strong>Each new note starts a phrase</strong> of grains, rooted on
+it, shaped by a two-transform fractal (an IFS attractor). Its window is
+960 × 660.</p>
+<p><strong>The attractor editor</strong> (left): time across, pitch up.
+Each transform is a filled dot (its fixed point) joined to a hollow one
+(its handle). <strong>Drag a dot</strong> to move the transform;
+<strong>drag its handle</strong> to change its
+<strong>Contraction</strong> (the line's length) and
+<strong>Rotation</strong> (its angle). The points drawn are the real
+attractor, with <strong>Vary</strong> on, the next 16 phrases', the
+first's larger, so you see what Burst will play. A handle past the edge
+is drawn, and can be grabbed, at the edge.</p>
+<p><strong>The phrase view</strong> (right): the next phrase, time
+across its Duration and pitch up and down from the root, each grain's
+size by its velocity after Decay; a second pass is ghosted with Loop.
+Below, the keyboard of what you hold.</p>
+<p><strong>Phrase group:</strong></p>
+<ul>
+<li><strong>Duration</strong> (ms or beats): the phrase's length.
+<strong>Count</strong> (1 to 64): how many grains.
+<strong>Range</strong> (± semitones): how far up and down the
+attractor's pitch reaches.</li>
+<li><strong>Release</strong>, what letting go of the root does:
+<strong>Finish</strong> (the phrase plays out), <strong>Stop</strong>
+(no more grains) or <strong>Loop</strong> (the phrase repeats while you
+hold the note).</li>
+<li><strong>Vary:</strong> on, every phrase is a different draw from the
+attractor; off, every phrase has the same shape.</li>
+<li><strong>Probability:</strong> the share of the points from T1 rather
+than T2.</li>
+</ul>
+<p><strong>Grain group:</strong> Length, Level, <strong>Decay</strong>
+(0 to 1: how much the grains fade across the phrase), and the
+spreads.</p>
+<p>Up to 16 phrases play at once, sharing Voices; a 17th replaces the
+oldest. A quick re-strike starts a new phrase.</p>
+</section>
+<section id="timing" class="callout callout-note card">
+<h2>Timing</h2>
+<p>Cloud, Burst and Buffer have <strong>Sync</strong>; Grid always runs
+on beats.</p>
+<ul>
+<li><strong>Sync:</strong> <strong>Free</strong> (grains per second,
+lengths in ms) or <strong>Beats</strong> (grains per beat, lengths in
+beats), from the host's tempo and position; with the transport stopped,
+from its tempo; with no host clock, 120 BPM.</li>
+<li><strong>Density</strong> (Free; 0.1 to 200 per second, default 8) or
+<strong>Rate</strong> (Beats; 1/4, 1/2, 1, 2, 3, 4, 6 or 8 per beat,
+default 4).</li>
+<li><strong>Length</strong> (1 ms to 5 s, default 100 ms; or 1/64 to 16
+beats, default ¼).</li>
+<li><strong>Onset random</strong> (0 to 1, default 0.5): 0 spaces grains
+evenly (in Beats, exactly on the grid); 1 is a random scatter at the
+same average rate.</li>
+</ul>
+<p>Timing is worked out from the song's position, not from audio blocks,
+so with a fixed <strong>Seed</strong> the same input gives exactly the
+same grains.</p>
+</section>
+<section id="pitch" class="callout callout-note card">
+<h2>Pitch</h2>
+<p>Applied to every grain, in this order (Chords has its own pitch
+settings):</p>
+<ul>
+<li><strong>Octaves</strong> (0 to 4; Cloud, Buffer): a grain may move
+up or down by up to that many octaves, at random.</li>
+<li><strong>Transpose</strong> (±48 semitones, fractions allowed).</li>
+<li><strong>Scatter</strong> (0 to 24 semitones): a random spread up and
+down, more often small than large.</li>
+<li><strong>Quantize:</strong> <strong>Off</strong>;
+<strong>EDO</strong>, snapping to the steps of the <strong>EDO</strong>
+(1 to 96, from <strong>Root</strong>, default A, as in KeyboardEDO); or
+<strong>Set</strong>, snapping to the nearest held note (or its octave),
+so a scattered grain stays in your chord's harmony.</li>
+</ul>
+<p>A pitch outside MIDI's range is folded back by octaves rather than
+piled on the top or bottom key.</p>
+</section>
+<section id="dynamics" class="callout callout-note card">
+<h2>Dynamics</h2>
+<ul>
+<li><strong>Level</strong> (0 to 2, default 1): times the held note's
+velocity.</li>
+<li><strong>Velocity spread</strong> and <strong>Length spread</strong>
+(0 to 1): random variation of each grain's velocity and length.</li>
+</ul>
+</section>
+<section id="input" class="callout callout-note card">
+<h2>Input</h2>
+<p>How each effect listens, and how many notes it plays:</p>
+<ul>
+<li><strong>Voices</strong> (1 to 32, default 8): at most this many
+notes at once. Every grain is a voice on your synth, so keep it under
+the synth's limit, with room for release tails: a dense cloud wants
+short grains, not many long ones.</li>
+<li><strong>When full:</strong> <strong>Skip</strong> (default) doesn't
+play a new note while Voices are all sounding, or while its key is
+already sounding, so grains stay whole; <strong>Steal</strong> ends the
+oldest note to play the new one.</li>
+<li><strong>Dry:</strong> whether the notes you hold also sound. Off by
+default, except in Buffer.</li>
+<li><strong>Hold over</strong> (0 to 200 ms, default 20): a note
+released and struck again this quickly stays in the set, so a sequencer
+repeating a chord doesn't empty it for an instant.</li>
+<li><strong>Set channel</strong> (default All): only notes on this
+channel are the set.</li>
+<li><strong>Trigger channel</strong> (default None): notes on this
+channel are rhythm instead: each one plays a grain (in Burst, starts a
+phrase), at its velocity, and Density or Rate is ignored. A drum pattern
+or a footswitch can play the set.</li>
+<li><strong>Latch:</strong> on, the set stays after you let go, until
+your next note starts a new one.</li>
+<li><strong>Seed</strong> (0 to 9999; 0 is new each start): with a seed
+set, the same input at the same times gives exactly the same notes, on
+any machine.</li>
+</ul>
+<p>Chords has only Voices and When full here.</p>
+</section>
+<section id="hosts" class="callout callout-note card">
+<h2>Hosts and Microtones</h2>
+<p>NoteGran works in pitches finer than a semitone throughout: from
+KeyboardEDO, from Chords in an EDO, from Scatter, or Quantize EDO.
+Whether the synth hears them depends on the host:</p>
+<table>
+<thead>
+<tr>
+<th>Host</th>
+<th>The synth hears</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>StageHand</td>
+<td>The exact pitch (MIDI 2.0 Pitch 7.9)</td>
+</tr>
+<tr>
+<td>Bitwig</td>
+<td>The exact pitch, from a synth that honours tuning expressions (CLAP
+notes)</td>
+</tr>
+<tr>
+<td>REAPER</td>
+<td>The nearest semitone</td>
+</tr>
+</tbody>
+</table>
+<p>A grain leaves in the form its note came in: MIDI 2.0 with its exact
+pitch, MIDI 1.0 rounded to the nearest key, a CLAP note with a tuning
+expression for the fraction. <strong>Chords</strong> is the exception: a
+chord note with a fraction goes out as MIDI 2.0 even from a MIDI 1.0
+note, so an EDO chord isn't rounded back to 12.</p>
+<p>The Unlikelyware synths play Pitch 7.9, and PlainOldSynth,
+StruckSynth, StruckRoom and StruckGaussian also play CLAP tuning
+expressions.</p>
+</section>
+<section id="midi" class="callout callout-note card">
+<h2>Notes and MIDI</h2>
+<ul>
+<li><strong>Every note NoteGran starts, it ends.</strong> Letting go,
+All Notes Off or All Sound Off, a reset, and (in Beats) the transport
+stopping all end its notes.</li>
+<li><strong>Pitch moves are followed:</strong> per-note pitch bend and
+Pitch 7.25 on a held note (KeyboardEDO's glides) move it in the set;
+grains picked after the move use the new pitch.</li>
+<li><strong>Two grains a few cents apart</strong> go on different keys
+in MIDI 2.0, so they don't cut each other off.</li>
+<li><strong>Everything that isn't a note</strong> passes through
+unchanged: CCs, channel pitch bend, program changes, SysEx, clock.</li>
+</ul>
+</section>
+<section id="tips" class="callout callout-note card">
+<h2>Tips</h2>
+<ul>
+<li><strong>Chords → Cloud:</strong> a chord from each note, scattered
+as grains. In StageHand, put Chords before Cloud in the row's MIDI
+FX.</li>
+<li><strong>An arpeggio:</strong> Cloud, Sync Beats, Rate 4, Onset
+random 0, Pick Up.</li>
+<li><strong>Keep it in key:</strong> Quantize Set snaps scattered grains
+to the notes you hold.</li>
+<li><strong>A pad that breathes:</strong> Cloud with long Length, low
+Density, Steal, and Voices near your synth's limit.</li>
+<li><strong>A drummer plays your chord:</strong> set Trigger channel to
+the drum track's channel.</li>
+<li><strong>Repeatable takes:</strong> set a Seed; the same playing
+gives the same grains.</li>
+</ul>
+</section>
+<section id="troubleshooting" class="callout callout-note card">
+<h2>Troubleshooting</h2>
+<ul>
+<li><strong>Nothing plays.</strong> Nothing is held (or Set channel
+excludes it), or a Trigger channel is set and no trigger notes arrive.
+Hold a chord; check the channels.</li>
+<li><strong>Fewer grains than Density says.</strong> Voices are full and
+When full is Skip. Raise Voices, shorten Length, or use Steal.</li>
+<li><strong>Grains are cut short.</strong> When full is Steal at a high
+density. Lower Density, shorten Length, or use Skip.</li>
+<li><strong>I hear my chord as well as the grains.</strong> Dry is on
+(it is by default in Buffer).</li>
+<li><strong>EDO, Root or Weight don't do anything.</strong> They're
+dimmed: Quantize isn't EDO, or Pick isn't Random.</li>
+<li><strong>Microtones sound rounded.</strong> See <a
+href="#hosts">Hosts and Microtones</a>.</li>
+<li><strong>Beats-mode grains drift from the song.</strong> The host
+isn't sending its position; with the transport stopped NoteGran runs
+from the tempo alone.</li>
+<li><strong>A rebuilt NoteGran doesn't show its changes.</strong> Quit
+and restart the host: a running host keeps the plugin it loaded
+first.</li>
+</ul>
+</section>
+</div>
+</body>
+</html>

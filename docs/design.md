@@ -527,12 +527,16 @@ Every plugin gets its own editor; the generic editors were a stopgap. Decided wi
   and naming its notes (with cents off 12-EDO); with a scale channel, the scale the playing plugin
   has. Beside it Chord; then Scale and Output.
 - **Help** (2026-11-03): a "?" box at the header's right, StruckSynth's HelpButton as Retune adapted
-  it (no caption). One page for all five effects (`resources/help.md`, in the synths' layout: an
-  On This Page index, a card per effect and per shared group of settings), built into
-  `resources/help.html` with pandoc and the products' shared template (the command is in
-  CMakeLists.txt) and committed. A click writes the page, the logo and a one-line page that
-  redirects to the effect's section (`open` drops a #fragment from a file path) to `NoteGran-help`
-  in the temp folder, and opens the redirect.
+  it (no caption). One source for all five effects (`resources/help.md`, in the synths' layout: an
+  On This Page index, a card per effect and per shared group of settings), and a page per effect
+  built from it (2026-11-04): `tools/help_pages.py` puts that effect's card among the shared ones
+  (the settings groups it has; Chords has no Timing or Pitch), gives it its own index, and runs
+  pandoc with the products' shared template into `resources/help-<effect>.html`, committed. A
+  click writes the effect's page to `NoteGran-help` in the temp folder, with the logo inside it as
+  a data: URL, and opens it. Not one page opened at its section, as first (a one-line page that
+  redirected to `#buffer`, since `open` drops a #fragment): snap Firefox on Linux is handed only
+  the file opened, through the document portal, so the redirect's target was "file not found",
+  and a logo beside the page can go missing the same way (EDOSpread12's did).
 - **Checked in StageHand** (2026-10-22): all four open at their sizes and draw. Not yet seen with
   notes playing, nor dragged and clicked by hand.
 - Every DGL plugin registers the same Objective-C class names (`DGL_17000604_Pugl…`) as

@@ -1,7 +1,8 @@
 // HelpButton.hpp — a "?" box with a caption above it, styled like Dropdown so the two sit together
-// in the header. A click writes the embedded help page (and the image it shows) to a folder under
-// the system temp directory and opens it in the system's default browser, so the built plugin
-// still has no filesystem dependency of its own.
+// in the header. A click writes the embedded help page to a folder under the system temp directory
+// and opens it in the system's default browser, so the built plugin still has no filesystem
+// dependency of its own. The images it shows go inside it, as data: URLs: a sandboxed browser (snap
+// or Flatpak Firefox on Linux) is handed only the one file opened, not the files beside it.
 // Copied from Retune's src/UI, itself from StruckSynth's (the house widget kit); Retune's changes are
 // marked "Retune:".
 
@@ -22,7 +23,7 @@ START_NAMESPACE_DGL
 class HelpButton : public NanoSubWidget
 {
 public:
-    // A file the page needs, written next to it under `name` (the name the HTML refers to).
+    // A file the page needs, under `name` (the name the HTML refers to): an image goes into the page.
     struct File
     {
         const char*  name;
@@ -30,7 +31,7 @@ public:
         uint         size;
     };
 
-    // files[0] is the page itself.
+    // files[0] is the page itself; the rest are the images it shows (`src="name"`).
     HelpButton(Widget* parent, std::vector<File> files)
         : NanoSubWidget(parent), fFiles(std::move(files))
     {
@@ -114,11 +115,19 @@ private:
         fs::create_directories(dir, ec);
         if (ec) return;
 
-        for (const File& f : fFiles)
+        std::string html(reinterpret_cast<const char*>(fFiles.front().data), fFiles.front().size);
+        for (size_t i = 1; i < fFiles.size(); ++i)
         {
-            std::ofstream out(dir / f.name, std::ios::binary | std::ios::trunc);
+            const std::string src = "src=\"" + std::string(fFiles[i].name) + "\"";
+            const std::string url = "src=\"data:" + mimeType(fFiles[i].name) + ";base64,"
+                                  + base64(fFiles[i].data, fFiles[i].size) + "\"";
+            for (size_t at = html.find(src); at != std::string::npos; at = html.find(src, at + url.size()))
+                html.replace(at, src.size(), url);
+        }
+        {
+            std::ofstream out(dir / fFiles.front().name, std::ios::binary | std::ios::trunc);
             if (!out) return;
-            out.write(reinterpret_cast<const char*>(f.data), static_cast<std::streamsize>(f.size));
+            out.write(html.data(), static_cast<std::streamsize>(html.size()));
         }
 
         // The path is ours (temp dir + fixed names), but quote it: temp paths can contain spaces.
@@ -132,6 +141,32 @@ private:
 #endif
         const int rc = std::system(cmd.c_str());
         (void)rc; // best-effort; nothing sensible to do if the browser launch fails
+    }
+
+    static std::string mimeType(const std::string& name)
+    {
+        const std::string ext = name.substr(name.find_last_of('.') + 1);
+        if (ext == "png") return "image/png";
+        if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+        if (ext == "svg") return "image/svg+xml";
+        return "application/octet-stream";
+    }
+
+    static std::string base64(const uchar* data, uint size)
+    {
+        static const char kDigits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string out;
+        out.reserve((size + 2) / 3 * 4);
+        for (uint i = 0; i < size; i += 3)
+        {
+            const uint n = (uint(data[i]) << 16) | (i + 1 < size ? uint(data[i + 1]) << 8 : 0u)
+                         | (i + 2 < size ? uint(data[i + 2]) : 0u);
+            out += kDigits[(n >> 18) & 63];
+            out += kDigits[(n >> 12) & 63];
+            out += i + 1 < size ? kDigits[(n >> 6) & 63] : '=';
+            out += i + 2 < size ? kDigits[n & 63] : '=';
+        }
+        return out;
     }
 
     std::vector<File> fFiles;

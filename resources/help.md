@@ -50,7 +50,7 @@ The host saves every setting with its project. What you held, and Buffer's recor
 
 ::: {.callout .callout-note .card}
 ## The Window {#window}
-**The header:** the Unlikelyware logo (a click opens unlikelyware.com), **NoteGran** and the effect's name in its colour (Cloud steel blue, Chords violet, Grid amber, Burst teal, Buffer rose), and **Help** at the right (the **?** box that opens this page in your browser, at that effect's section).
+**The header:** the Unlikelyware logo (a click opens unlikelyware.com), **NoteGran** and the effect's name in its colour (Cloud steel blue, Chords violet, Grid amber, Burst teal, Buffer rose), and **Help** at the right (the **?** box that opens this effect's help page in your browser).
 
 **Below it:** the effect's view (or views) at the top, then its settings in titled groups. Each knob shows its name above it and its value below.
 

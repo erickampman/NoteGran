@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>help-NoteGran</title>
+    <title>help-NoteGran-Grid</title>
     <style>
 :root {
   --bg: #0f1115;
@@ -280,7 +280,7 @@ tbody tr:nth-child(even) {
   <a href="https://www.unlikelyware.com" target="_blank" rel="noopener noreferrer">
     <img src="Unlikelyware.png" alt="Unlikelyware" style="width: 56px; height: auto; border-radius: 10px; margin: 0; display: block;">
   </a>
-  <h1 style="margin: 0;">NoteGran</h1>
+  <h1 style="margin: 0;">NoteGran Grid</h1>
 </div>
 
 <p>
@@ -290,16 +290,17 @@ tbody tr:nth-child(even) {
 <section id="on-this-page" class="callout callout-note card">
 <h2>On This Page</h2>
 <p><a href="#overview">Overview</a> · <a href="#getting-started">Getting
-Started</a> · <a href="#window">The Window</a></p>
-<p><strong>The effects —</strong> <a href="#cloud">Cloud</a> · <a
-href="#chords">Chords</a> · <a href="#grid">Grid</a> · <a
-href="#burst">Burst</a> · <a href="#buffer">Buffer</a></p>
+Started</a> · <a href="#window">The Window</a> · <a
+href="#grid">Grid</a></p>
 <p><strong>Shared settings —</strong> <a href="#timing">Timing</a> · <a
 href="#pitch">Pitch</a> · <a href="#dynamics">Dynamics</a> · <a
 href="#input">Input</a></p>
 <p><strong>Playing —</strong> <a href="#hosts">Hosts and Microtones</a>
 · <a href="#midi">Notes and MIDI</a> · <a href="#tips">Tips</a> · <a
 href="#troubleshooting">Troubleshooting</a></p>
+<p><strong>The other effects —</strong> Cloud · Chords · Burst · Buffer:
+each has a page of its own, opened from the <strong>?</strong> box in
+its editor.</p>
 </section>
 <section id="overview" class="callout callout-note card">
 <h2>Overview</h2>
@@ -316,13 +317,13 @@ them. The synth after it makes the sound.</p>
 </thead>
 <tbody>
 <tr>
-<td><strong><a href="#cloud">Cloud</a></strong></td>
+<td><strong>Cloud</strong></td>
 <td>Scatters grains whose pitches are picked from the notes you hold: at
 random, up, down or as played. Evenly on the beat it's an arpeggiator;
 with more randomness it thins into a cloud</td>
 </tr>
 <tr>
-<td><strong><a href="#chords">Chords</a></strong></td>
+<td><strong>Chords</strong></td>
 <td>Turns each note into a chord of a scale, in 12-EDO or mapped into
 any EDO</td>
 </tr>
@@ -332,12 +333,12 @@ any EDO</td>
 off-beat…), each with its own probability, level, pick and offset</td>
 </tr>
 <tr>
-<td><strong><a href="#burst">Burst</a></strong></td>
+<td><strong>Burst</strong></td>
 <td>Each new note starts a phrase of grains, shaped by a fractal you
 edit in its window</td>
 </tr>
 <tr>
-<td><strong><a href="#buffer">Buffer</a></strong></td>
+<td><strong>Buffer</strong></td>
 <td>Records what you played in the last few seconds or beats and replays
 grains from it, a note or a fragment at a time</td>
 </tr>
@@ -376,8 +377,8 @@ Buffer's recording, aren't saved: a new session starts empty.</p>
 unlikelyware.com), <strong>NoteGran</strong> and the effect's name in
 its colour (Cloud steel blue, Chords violet, Grid amber, Burst teal,
 Buffer rose), and <strong>Help</strong> at the right (the
-<strong>?</strong> box that opens this page in your browser, at that
-effect's section).</p>
+<strong>?</strong> box that opens this effect's help page in your
+browser).</p>
 <p><strong>Below it:</strong> the effect's view (or views) at the top,
 then its settings in titled groups. Each knob shows its name above it
 and its value below.</p>
@@ -449,84 +450,6 @@ end gets as much travel as the high end.</p>
 </div>
 </details>
 
-<section id="cloud" class="callout callout-note card">
-<h2>Cloud</h2>
-<p><strong>The plain one:</strong> grains whose pitches are picked from
-the notes you hold. Its window is 900 × 560.</p>
-<p><strong>The view:</strong> a keyboard of equal semitones over the
-range you're playing. The notes you hold are lit on it, and each grain
-rises from its exact pitch and fades, so microtonal pitches show where
-they really are.</p>
-<p><strong>Groups:</strong> <a href="#timing">Timing</a> (Sync, Density
-or Rate, Length, Onset random), <strong>Pick</strong>, <a
-href="#pitch">Pitch</a>, <a href="#dynamics">Dynamics</a> and <a
-href="#input">Input</a>.</p>
-<p><strong>Pick</strong> (default Random), which held note a grain
-plays:</p>
-<ul>
-<li><strong>Random</strong>, weighted by <strong>Weight</strong>: 0
-picks every note equally, 1 picks louder notes more often.</li>
-<li><strong>Up</strong> and <strong>Down</strong>, by pitch;
-<strong>Up-down</strong> goes up then down.</li>
-<li><strong>Played</strong>, in the order you played the notes.</li>
-</ul>
-<p>The ordered picks keep their place when you change the chord: the
-next grain plays the next note after the last one's pitch.</p>
-<p><strong>An arpeggiator to a cloud:</strong> with Sync on Beats, Onset
-random at 0 and Pick Up, Cloud is an arpeggiator; raise Onset random and
-Scatter and it thins into a cloud.</p>
-</section>
-<section id="chords" class="callout callout-note card">
-<h2>Chords</h2>
-<p><strong>A transformer:</strong> each note you hold becomes a chord
-built on it in a scale, held as long as the note. Play it into a synth,
-or into Cloud, Grid or Burst. Its window is 920 × 600.</p>
-<p><strong>The view:</strong> the scale on a circle of N steps, the key
-at the top, its degrees numbered (Roman numerals for a seven-note
-scale). The notes sounding are lit and joined. <strong>Click a
-degree</strong> to see the chord on it, with its notes named (and their
-cents off 12-EDO); click it again to hide it. Beside the circle, the
-settings in words: the scale and key, the EDO and mapping, and the
-chord.</p>
-<p><strong>Scale group:</strong></p>
-<ul>
-<li><strong>Scale:</strong> the modes of major, melodic minor and
-harmonic minor, harmonic major, the pentatonics, whole tone and more.
-<strong>Key</strong> (C♭ … C♯): its key.</li>
-<li><strong>EDO</strong> (1 to 96, default 12): the scale is mapped into
-this many steps per octave. <strong>Origin</strong> (default A) is step
-0 of the EDO, as in KeyboardEDO, so they agree.</li>
-<li><strong>Map</strong>, how each familiar degree finds its EDO step:
-<strong>Nearest</strong> (default), the step nearest its usual pitch,
-closest to the familiar sound; or <strong>By fifths</strong>, built from
-the EDO's own fifth, which keeps the scale's shape (thirds stay thirds)
-and gives the EDO's own character.</li>
-<li><strong>Input</strong>, what a played note is matched against:
-<strong>Familiar</strong>, an ordinary keyboard (a note is in the scale
-if its usual key is); or <strong>EDO</strong>, a keyboard playing the
-EDO itself, such as KeyboardEDO.</li>
-<li><strong>Scale channel</strong> (default None): hold notes on this
-channel and they <em>are</em> the scale, already in the EDO, kept until
-you play a new one there. Scale and Key are then dimmed.</li>
-</ul>
-<p>Map, Origin and Input matter only away from 12-EDO, and are dimmed at
-12.</p>
-<p><strong>Chord group:</strong> <strong>Size</strong> (1 to 6 notes; 1
-is a scale quantizer), <strong>Stack</strong> (Thirds, Fourths or
-Fifths: every 2nd, 3rd or 4th degree), <strong>Inversion</strong> (Root,
-1st … 5th: that many of its lowest notes go up an octave),
-<strong>Voicing</strong> (Close, Open, Drop-2 or Spread) and
-<strong>Octave</strong> (−2 to +2).</p>
-<p><strong>Output group:</strong> <strong>Off-scale</strong>, what a
-note outside the scale does: <strong>Pass</strong> (default; it plays
-alone, as played), <strong>Nearest</strong> (it becomes the nearest
-degree, with its chord) or <strong>Drop</strong>. Then Level, Voices and
-When full (<a href="#dynamics">Dynamics</a>, <a
-href="#input">Input</a>).</p>
-<p>An in-scale note sounds on its EDO step, so the whole chord is in the
-EDO. Changing the scale while you hold notes changes only the chords you
-play next.</p>
-</section>
 <section id="grid" class="callout callout-note card">
 <h2>Grid</h2>
 <p><strong>Grains on a beat grid</strong> whose places have
@@ -566,83 +489,6 @@ or <strong>Random</strong>.</li>
 raising a tier's Chaos is all it takes.</p>
 <p>The cycle counts from the host's beat 0, so a Grid stays locked to
 the song and to other Grids.</p>
-</section>
-<section id="burst" class="callout callout-note card">
-<h2>Burst</h2>
-<p><strong>Each new note starts a phrase</strong> of grains, rooted on
-it, shaped by a two-transform fractal (an IFS attractor). Its window is
-960 × 660.</p>
-<p><strong>The attractor editor</strong> (left): time across, pitch up.
-Each transform is a filled dot (its fixed point) joined to a hollow one
-(its handle). <strong>Drag a dot</strong> to move the transform;
-<strong>drag its handle</strong> to change its
-<strong>Contraction</strong> (the line's length) and
-<strong>Rotation</strong> (its angle). The points drawn are the real
-attractor, with <strong>Vary</strong> on, the next 16 phrases', the
-first's larger, so you see what Burst will play. A handle past the edge
-is drawn, and can be grabbed, at the edge.</p>
-<p><strong>The phrase view</strong> (right): the next phrase, time
-across its Duration and pitch up and down from the root, each grain's
-size by its velocity after Decay; a second pass is ghosted with Loop.
-Below, the keyboard of what you hold.</p>
-<p><strong>Phrase group:</strong></p>
-<ul>
-<li><strong>Duration</strong> (ms or beats): the phrase's length.
-<strong>Count</strong> (1 to 64): how many grains.
-<strong>Range</strong> (± semitones): how far up and down the
-attractor's pitch reaches.</li>
-<li><strong>Release</strong>, what letting go of the root does:
-<strong>Finish</strong> (the phrase plays out), <strong>Stop</strong>
-(no more grains) or <strong>Loop</strong> (the phrase repeats while you
-hold the note).</li>
-<li><strong>Vary:</strong> on, every phrase is a different draw from the
-attractor; off, every phrase has the same shape.</li>
-<li><strong>Probability:</strong> the share of the points from T1 rather
-than T2.</li>
-</ul>
-<p><strong>Grain group:</strong> Length, Level, <strong>Decay</strong>
-(0 to 1: how much the grains fade across the phrase), and the
-spreads.</p>
-<p>Up to 16 phrases play at once, sharing Voices; a 17th replaces the
-oldest. A quick re-strike starts a new phrase.</p>
-</section>
-<section id="buffer" class="callout callout-note card">
-<h2>Buffer</h2>
-<p><strong>Records what you play</strong> and replays grains from the
-recording. Play a phrase (or put a looper in front) and Buffer explores
-it. Its window is 940 × 600.</p>
-<p><strong>The view:</strong> the keyboard of what you're playing, each
-grain rising from its pitch.</p>
-<p><strong>Capture group:</strong></p>
-<ul>
-<li><strong>Window</strong> (seconds or beats; default 4 s / 8 beats):
-how far back the recording reaches (up to 512 notes).</li>
-<li><strong>Freeze:</strong> keeps the recording as it is; new notes
-play through (with Dry) but aren't recorded.</li>
-<li><strong>Position</strong> (0 oldest to 1 newest): where grains read
-from. <strong>Scan</strong>: how the read point drifts: 0 holds it, 1
-moves in real time, negative goes backwards (−4 to 4).
-<strong>Spray</strong>: a random spread around it.</li>
-</ul>
-<p><strong>Grain group:</strong></p>
-<ul>
-<li><strong>Grain:</strong> <strong>Note</strong>, a grain is the
-recorded note nearest the read point; <strong>Fragment</strong>, a grain
-is the stretch of the recording <strong>Length</strong> long from the
-read point, every note in it replayed with its timing, so a chord stays
-a chord and a bit of a run becomes a figure.</li>
-<li><strong>Density</strong> or <strong>Rate</strong>, and <strong>Onset
-random</strong> (<a href="#timing">Timing</a>); dimmed with a trigger
-channel, whose notes are the grains.</li>
-<li><strong>Length</strong>, and <strong>Length from</strong> (Note
-only): <strong>Length</strong>, the knob; <strong>Source</strong>, the
-recorded note's own length.</li>
-<li><strong>Gate:</strong> on, grains play only while you hold a
-key.</li>
-</ul>
-<p><strong>Dry is on by default here:</strong> you usually want to hear
-what you're playing. All Notes Off, a reset and the transport stopping
-clear the recording.</p>
 </section>
 <section id="timing" class="callout callout-note card">
 <h2>Timing</h2>

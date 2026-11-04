@@ -88,15 +88,14 @@ const char* nameFor(int kind) {
     default: return "Cloud";
     }
 }
-// The help page opened at this plugin's section. `open` drops a #fragment from a file path, so the
-// button opens a page of its own that sends the browser on to the right section.
-const char* helpRedirect(int kind) {
+// This plugin's own help page (tools/help_pages.py builds the five from resources/help.md).
+HelpButton::File helpPage(int kind) {
     switch (kind) {
-    case NG_CHORDS: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#chords\">";
-    case NG_GRID: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#grid\">";
-    case NG_BURST: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#burst\">";
-    case NG_BUFFER: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#buffer\">";
-    default: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#cloud\">";
+    case NG_CHORDS: return {"NoteGran-Chords-help.html", EmbeddedResources::help_chordsData, EmbeddedResources::help_chordsDataSize};
+    case NG_GRID: return {"NoteGran-Grid-help.html", EmbeddedResources::help_gridData, EmbeddedResources::help_gridDataSize};
+    case NG_BURST: return {"NoteGran-Burst-help.html", EmbeddedResources::help_burstData, EmbeddedResources::help_burstDataSize};
+    case NG_BUFFER: return {"NoteGran-Buffer-help.html", EmbeddedResources::help_bufferData, EmbeddedResources::help_bufferDataSize};
+    default: return {"NoteGran-Cloud-help.html", EmbeddedResources::help_cloudData, EmbeddedResources::help_cloudDataSize};
     }
 }
 const Color kWindow(26, 28, 33);
@@ -447,12 +446,9 @@ public:
             }
             fGroups.push_back(std::move(box));
         }
-        // help.html shows the logo as "Unlikelyware.png", so it is written out under that name.
-        const char* redirect = helpRedirect(fKind);
+        // The help pages show the logo as "Unlikelyware.png"; HelpButton puts it in the page.
         fHelp = std::make_unique<HelpButton>(this, std::vector<HelpButton::File>{
-            {"NoteGran-help-section.html", reinterpret_cast<const uchar*>(redirect),
-             static_cast<uint>(std::strlen(redirect))},
-            {"NoteGran-help.html", EmbeddedResources::helpData, EmbeddedResources::helpDataSize},
+            helpPage(fKind),
             {"Unlikelyware.png", EmbeddedResources::Unlikelyware_Final_ColorData,
              EmbeddedResources::Unlikelyware_Final_ColorDataSize}});
         fMenu = std::make_unique<PopupMenu>(this, this);   // last, so it draws on top
