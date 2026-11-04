@@ -51,6 +51,7 @@
 - [x] DPF for drawing only (DGL, NanoVG, pugl); the house widget kit; one shell, an accent per effect
 - [x] Cloud, Chords, Grid and Burst editors with live views and previews
 - [x] All five checked with notes playing in Bitwig (2026-10-24)
+- [x] Help: one page for the five effects (resources/help.md → help.html, the shared template), a Help button in each editor opening its section (2026-11-03)
 
 ## M8: Hosts (by hand)
 - [x] Bitwig, Linux, CLAP: all five effects, microtonal output reaches the synth (2026-10-24)

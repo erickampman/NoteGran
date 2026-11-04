@@ -526,6 +526,13 @@ Every plugin gets its own editor; the generic editors were a stopgap. Decided wi
   numbered, Roman with seven), the notes sounding lit and joined, a degree clicked showing its chord
   and naming its notes (with cents off 12-EDO); with a scale channel, the scale the playing plugin
   has. Beside it Chord; then Scale and Output.
+- **Help** (2026-11-03): a "?" box at the header's right, StruckSynth's HelpButton as Retune adapted
+  it (no caption). One page for all five effects (`resources/help.md`, in the synths' layout: an
+  On This Page index, a card per effect and per shared group of settings), built into
+  `resources/help.html` with pandoc and the products' shared template (the command is in
+  CMakeLists.txt) and committed. A click writes the page, the logo and a one-line page that
+  redirects to the effect's section (`open` drops a #fragment from a file path) to `NoteGran-help`
+  in the temp folder, and opens the redirect.
 - **Checked in StageHand** (2026-10-22): all four open at their sizes and draw. Not yet seen with
   notes playing, nor dragged and clicked by hand.
 - Every DGL plugin registers the same Objective-C class names (`DGL_17000604_Pugl…`) as

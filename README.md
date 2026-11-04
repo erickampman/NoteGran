@@ -28,7 +28,9 @@ source only.
 | **Burst** | Each new note starts a phrase of grains shaped by a two-transform fractal (IFS) attractor, drawn and edited in its window |
 | **Buffer** | Captures the notes played in the last few seconds or beats and reads grains from that capture, a note at a time or a fragment at a time, with Position, Scan, Spray and Freeze |
 
-Each has its own editor with a live view of the notes held and the grains they make.
+Each has its own editor with a live view of the notes held and the grains they make. The **?** at
+the top right of each opens the help page ([resources/help.md](resources/help.md)) in your browser,
+at that effect's section.
 
 ## What makes it different
 

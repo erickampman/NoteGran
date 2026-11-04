@@ -1,7 +1,7 @@
 // NoteGranUI.cpp — NoteGran's editors (docs/design.md, "Editors"), DPF + NanoVG, after StruckSynth's.
 //
 // One shell for the four plugins: the header (the Unlikelyware logo, "NoteGran" and the plugin's
-// name in its colour), the house widget kit (Knob, Dropdown, Toggle, GroupBox, PopupMenu, copied
+// name in its colour, and Help, a "?" box that opens the help page at that plugin's section), the house widget kit (Knob, Dropdown, Toggle, GroupBox, PopupMenu, copied
 // from StruckSynth; Slider, NoteGran's own), and a layout per plugin: rows of groups and views,
 // each row as tall as its weight says and each item as wide as its cells. A group's slots are one
 // parameter's control each, or two swapped by a third (Density and Rate, by Sync), wrapping into
@@ -35,8 +35,9 @@
 
 
 #include "Dropdown.hpp"
-#include "EmbeddedResources.hpp"   // build-time: the logo's bytes
+#include "EmbeddedResources.hpp"   // build-time: the logo's and the help page's bytes
 #include "GroupBox.hpp"
+#include "HelpButton.hpp"
 #include "Knob.hpp"
 #include "Logo.hpp"
 #include "PopupMenu.hpp"
@@ -53,6 +54,7 @@ using DGL_NAMESPACE::Color;
 using DGL_NAMESPACE::Dropdown;
 using DGL_NAMESPACE::GridView;
 using DGL_NAMESPACE::GroupBox;
+using DGL_NAMESPACE::HelpButton;
 using DGL_NAMESPACE::Knob;
 using DGL_NAMESPACE::LiveView;
 using DGL_NAMESPACE::Logo;
@@ -84,6 +86,17 @@ const char* nameFor(int kind) {
     case NG_BURST: return "Burst";
     case NG_BUFFER: return "Buffer";
     default: return "Cloud";
+    }
+}
+// The help page opened at this plugin's section. `open` drops a #fragment from a file path, so the
+// button opens a page of its own that sends the browser on to the right section.
+const char* helpRedirect(int kind) {
+    switch (kind) {
+    case NG_CHORDS: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#chords\">";
+    case NG_GRID: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#grid\">";
+    case NG_BURST: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#burst\">";
+    case NG_BUFFER: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#buffer\">";
+    default: return "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=NoteGran-help.html#cloud\">";
     }
 }
 const Color kWindow(26, 28, 33);
@@ -434,6 +447,14 @@ public:
             }
             fGroups.push_back(std::move(box));
         }
+        // help.html shows the logo as "Unlikelyware.png", so it is written out under that name.
+        const char* redirect = helpRedirect(fKind);
+        fHelp = std::make_unique<HelpButton>(this, std::vector<HelpButton::File>{
+            {"NoteGran-help-section.html", reinterpret_cast<const uchar*>(redirect),
+             static_cast<uint>(std::strlen(redirect))},
+            {"NoteGran-help.html", EmbeddedResources::helpData, EmbeddedResources::helpDataSize},
+            {"Unlikelyware.png", EmbeddedResources::Unlikelyware_Final_ColorData,
+             EmbeddedResources::Unlikelyware_Final_ColorDataSize}});
         fMenu = std::make_unique<PopupMenu>(this, this);   // last, so it draws on top
 
         refresh(true);
@@ -800,6 +821,10 @@ private:
         fLogo->setAbsolutePos(M, static_cast<int>(11 * s));
         fTitleX = static_cast<float>(M + static_cast<int>(fLogo->getWidth()) + static_cast<int>(12 * s));
         fMenu->setUiScale(s);
+        const int helpW = static_cast<int>(26 * s);   // Help at the header's right
+        fHelp->setUiScale(s);
+        fHelp->setAbsolutePos(W - M - helpW, static_cast<int>(9 * s));
+        fHelp->setSize(static_cast<uint>(helpW), static_cast<uint>(26 * s));
         if (fLive) fLive->setUiScale(s);
         if (fScatter) fScatter->setUiScale(s);
         if (fCircle) fCircle->setUiScale(s);
@@ -888,6 +913,7 @@ private:
     std::unique_ptr<ScatterEditorView>     fScatter;            // Burst
     std::unique_ptr<ChordCircle>           fCircle;             // Chords
     std::unique_ptr<Logo>                  fLogo;
+    std::unique_ptr<HelpButton>            fHelp;
     std::unique_ptr<PopupMenu>             fMenu;
     std::array<bool, kTierCount>           fTierUsed{true, true, true, true, true};
     bool                                   fMenuScale = true;   // Chords: the scale is the menu's
