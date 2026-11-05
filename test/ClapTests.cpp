@@ -623,6 +623,11 @@ void testChords() {
     CHECK(r.params->text_to_value(r.plugin, cScale, "Lydian dominant", &v) && v == 10);
     clap_param_info_t info{};
     CHECK(r.params->get_info(r.plugin, cMap, &info) && info.default_value == 1);   // Nearest
+    // 29 scales, the diminished three and Blues last.
+    CHECK(r.params->get_info(r.plugin, cScale, &info) && info.max_value == 28);
+    CHECK(r.params->value_to_text(r.plugin, cScale, 27, text, sizeof(text)) &&
+          std::strcmp(text, "Diminished (from the 2nd)") == 0);
+    CHECK(r.params->value_to_text(r.plugin, cScale, 28, text, sizeof(text)) && std::strcmp(text, "Blues") == 0);
 
     // Defaults: C major in 12-EDO, triads. MIDI 1.0 C gives C E G in MIDI 1.0; C# passes; a CC passes.
     Input in;

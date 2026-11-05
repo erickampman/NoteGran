@@ -281,6 +281,24 @@ Long wanted on its own (2026-10-21); it fits here because a chord is just a set.
   melodic minor (lydian dominant among them) and of harmonic minor, harmonic major, the
   pentatonics, whole tone. One list for every EDO: the mapping does the rest (so open question 3 is
   mostly answered).
+- **The diminished scales and Blues (added 2026-11-04),** so NoteGran, KeyboardEDO and EDOSpread12
+  share one list of 29 (EDOSpread12 chose the names; the order and names are the same in all
+  three): after Whole tone, `Diminished (whole-half)`, `Diminished (half-whole)`, `Diminished (from
+  the 2nd)`, `Blues`. The diminished scale has only three 8-note sets, a half step apart, and all
+  three are offered from the key because the key isn't always in the one wanted. A scale holds up
+  to 8 degrees (`FamiliarScale::kMaxDegrees`). Spellings, each diminished set as two diminished
+  sevenths so By fifths keeps the minor thirds:
+  - whole-half: C D Eb F Gb Ab A B (`0 2 −3 −1 −6 −4 3 5`; flats, not F# G#, so C Eb Gb A and D F Ab B)
+  - half-whole: C Db Eb E F# G A Bb (`0 −5 −3 4 6 1 3 −2`: C Eb F# A and Db E G Bb)
+  - from the 2nd: Db D E F G Ab Bb B (`−5 2 4 −1 1 −4 −2 5`: Db E G Bb and D F Ab B)
+  - Blues: C Eb F Gb G Bb (`0 −3 −1 −6 1 −2`): the blue note as a flat five, beside its flat neighbours.
+- **A scale may leave its key out** (from the 2nd). Degrees are always its notes ascending from the
+  key, so its degree 0 is Db in C, and the key is off the scale: Off-scale handles a played key as
+  any other (Pass, Nearest, which looks down first and finds B, or Drop). Nothing needs degree 0 to
+  be the key: `steps` are above the key, `keyStep` is where the key is whether in the scale or not,
+  and `stepOfDegree`'s base is the key's step. The editor's circle keeps the key at the top; when
+  no degree is there it rings the key's place, empty. Seven-note scales get Roman numerals, the
+  others numbers (1 … 8 from Db here).
 - `Map`: **By fifths** | **Nearest** (the default; decided 2026-10-25, with KeyboardEDO's scale
   highlight, which defaults to it): most people choosing a familiar scale want the notes nearest the
   ones they know, and By fifths is the deliberate choice of someone after the EDO's own version.

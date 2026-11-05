@@ -3,12 +3,14 @@
 // mouse events first — modal capture). The UI opens it for a given control, and gets the chosen
 // row back via the Callback. A `tag` carries the caller's identity (e.g. a host param index).
 // Copied from StruckSynth's src/UI (the house widget kit); NoteGran's changes are marked "NoteGran:".
+// NoteGran (as EDOSpread12's): a list taller than the window wraps into columns, kept inside the window.
 
 #ifndef NOTEGRAN_POPUPMENU_HPP
 #define NOTEGRAN_POPUPMENU_HPP
 
 #include "NanoVG.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -39,14 +41,23 @@ public:
                  int x, int boxBottom, int boxTop, int width, int windowH)
     {
         fTag = tag; fItems = items; fCurrent = current; fHover = -1;
-        const int h = static_cast<int>(items.size()) * fRowH + 2 * fPad;
+        // NoteGran: as many rows as the window holds; more items go on in further columns,
+        // balanced (29 scales: two columns of 15).
+        const int n       = std::max(1, static_cast<int>(items.size()));
+        const int maxRows = std::max(1, (windowH - 2 * fPad) / std::max(1, fRowH));
+        fCols = (n + maxRows - 1) / maxRows;
+        fRows = (n + fCols - 1) / fCols;
+        const int h = fRows * fRowH + 2 * fPad;
         // Width: at least the anchor box, but widened to fit the longest label — menus like the
         // 26 materials have items far longer than the compact box that opens them.
         const float fs = kFontBase * fUiScale;
         size_t maxChars = 1;
         for (const auto& it : items) maxChars = std::max(maxChars, it.size());
         const int contentW = static_cast<int>(maxChars * fs * 0.66f + 34 * fUiScale);
-        const int useW = std::max(width, contentW);
+        fColW = std::max(width, contentW);
+        const int useW = fColW * fCols;
+        if (const TopLevelWidget* const topw = getTopLevelWidget())   // NoteGran: kept inside
+            x = std::max(0, std::min(x, static_cast<int>(topw->getWidth()) - useW));
         int y = boxBottom;
         if (y + h > windowH)   // not enough room below → open above the box
             y = boxTop - h;
@@ -87,10 +98,10 @@ protected:
 
         for (int i = 0; i < static_cast<int>(fItems.size()); ++i)
         {
-            const float ry = fPad + i * fRowH;
+            const float ry = fPad + (i % fRows) * fRowH, cx = static_cast<float>((i / fRows) * fColW);
             if (i == fHover)
             {
-                beginPath(); rect(2, ry, w - 4, fRowH);
+                beginPath(); rect(cx + 2, ry, fColW - 4, fRowH);
                 fillColor(Color(63, 185, 207, 60)); fill();
             }
             if (fHasFont)
@@ -99,7 +110,7 @@ protected:
                 textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
                 fontSize(kFontBase * fUiScale);
                 fillColor(i == fCurrent ? Color(120, 210, 225) : Color(226, 230, 236));
-                text(12.0f * fUiScale, ry + fRowH * 0.5f, fItems[i].c_str(), nullptr);
+                text(cx + 12.0f * fUiScale, ry + fRowH * 0.5f, fItems[i].c_str(), nullptr);
             }
         }
     }
@@ -148,10 +159,12 @@ private:
 
     int rowAt(double mx, double my) const
     {
-        if (mx < 0 || mx > getWidth()) return -1;
+        if (mx < 0 || mx >= getWidth()) return -1;
         const double ry = my - fPad;
         if (ry < 0) return -1;
-        const int idx = static_cast<int>(ry / fRowH);
+        const int row = static_cast<int>(ry / fRowH);
+        if (row >= fRows) return -1;
+        const int idx = static_cast<int>(mx / fColW) * fRows + row;
         return (idx >= 0 && idx < static_cast<int>(fItems.size())) ? idx : -1;
     }
 
@@ -165,6 +178,7 @@ private:
 
     static constexpr float   kFontBase = 14.5f; // shared by openFor width calc + onNanoDisplay
     int fRowH = 24, fPad = 4;
+    int fRows = 1, fCols = 1, fColW = 100;   // NoteGran: the columns, from openFor
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PopupMenu)
 };

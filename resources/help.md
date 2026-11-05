@@ -103,10 +103,10 @@ The ordered picks keep their place when you change the chord: the next grain pla
 ## Chords {#chords}
 **A transformer:** each note you hold becomes a chord built on it in a scale, held as long as the note. Play it into a synth, or into Cloud, Grid or Burst. Its window is 920 × 600.
 
-**The view:** the scale on a circle of N steps, the key at the top, its degrees numbered (Roman numerals for a seven-note scale). The notes sounding are lit and joined. **Click a degree** to see the chord on it, with its notes named (and their cents off 12-EDO); click it again to hide it. Beside the circle, the settings in words: the scale and key, the EDO and mapping, and the chord.
+**The view:** the scale on a circle of N steps, the key at the top, its degrees numbered (Roman numerals for a seven-note scale; an empty ring at the top when the scale leaves the key out). The notes sounding are lit and joined. **Click a degree** to see the chord on it, with its notes named (and their cents off 12-EDO); click it again to hide it. Beside the circle, the settings in words: the scale and key, the EDO and mapping, and the chord.
 
 **Scale group:**
-- **Scale:** the modes of major, melodic minor and harmonic minor, harmonic major, the pentatonics, whole tone and more. **Key** (C♭ … C♯): its key.
+- **Scale:** the modes of major, melodic minor and harmonic minor, harmonic major, the pentatonics, whole tone, the diminished scales and blues: 29 in all, the same list as KeyboardEDO's and EDOSpread12's. **Key** (C♭ … C♯): its key. The diminished scale has only three different sets of notes, a half step apart, so all three are here: **whole-half** and **half-whole** from the key, and **from the 2nd**, which leaves the key out (its degrees start a half step above it, and the key itself is off the scale). The menu opens in two columns.
 - **EDO** (1 to 96, default 12): the scale is mapped into this many steps per octave. **Origin** (default A) is step 0 of the EDO, as in KeyboardEDO, so they agree.
 - **Map**, how each familiar degree finds its EDO step: **Nearest** (default), the step nearest its usual pitch, closest to the familiar sound; or **By fifths**, built from the EDO's own fifth, which keeps the scale's shape (thirds stay thirds) and gives the EDO's own character.
 - **Input**, what a played note is matched against: **Familiar**, an ordinary keyboard (a note is in the scale if its usual key is); or **EDO**, a keyboard playing the EDO itself, such as KeyboardEDO.
