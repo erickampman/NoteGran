@@ -453,14 +453,22 @@ end gets as much travel as the high end.</p>
 <h2>Chords</h2>
 <p><strong>A transformer:</strong> each note you hold becomes a chord
 built on it in a scale, held as long as the note. Play it into a synth,
-or into Cloud, Grid or Burst. Its window is 920 × 600.</p>
+or into Cloud, Grid or Burst. Its window is 920 × 660.</p>
 <p><strong>The view:</strong> the scale on a circle of N steps, the key
 at the top, its degrees numbered (Roman numerals for a seven-note
 scale). The notes sounding are lit and joined. <strong>Click a
-degree</strong> to see the chord on it, with its notes named (and their
-cents off 12-EDO); click it again to hide it. Beside the circle, the
+degree</strong> to see the chord on it, one note to a line: its name
+(with its cents off 12-EDO), then the just interval it's nearest above
+the chord's root and how far off, such as <strong>E4−14¢ 5/4
+−4.5¢</strong>. Click it again to hide it. Beside the circle, the
 settings in words: the scale and key, the EDO and mapping, and the
 chord.</p>
+<p><strong>The intervals are named within an octave,</strong> so a 10th
+reads as a 3rd: from 1/1 (the root) through 16/15, 9/8, 8/7, 7/6, 6/5,
+11/9, 5/4, 9/7, 4/3, 11/8, 7/5, 10/7, 3/2, 14/9, 8/5, 13/8, 5/3, 12/7,
+7/4, 16/9, 9/5, 11/6 and 15/8. The nearest is shown however far off it
+is, so a large error means the interval isn't near any of them: a
+neutral or quarter-tone sound.</p>
 <p><strong>Scale group:</strong></p>
 <ul>
 <li><strong>Scale:</strong> the modes of major, melodic minor and
@@ -499,6 +507,81 @@ href="#input">Input</a>).</p>
 <p>An in-scale note sounds on its EDO step, so the whole chord is in the
 EDO. Changing the scale while you hold notes changes only the chords you
 play next.</p>
+<p><strong>This EDO,</strong> between Scale and Output: what the EDO
+does to chords, so you can see before you play whether stacked chords
+will be sweet, tense or strange. It follows the <strong>EDO</strong>
+setting. Each interval row gives steps · cents off the just ratio,
+twice: the EDO's <strong>best</strong> step for it, and the step the
+diatonic <strong>scale</strong> gives it when built from the EDO's fifth
+(as <strong>Map: By fifths</strong> builds it).</p>
+<table>
+<thead>
+<tr>
+<th>Row</th>
+<th>What it tells you</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Fifth 3/2</strong></td>
+<td>The fifth every chord leans on, and how far from pure</td>
+</tr>
+<tr>
+<td><strong>Major 3rd 5/4</strong></td>
+<td>The sweet major third. Is the scale's major third (four fifths up)
+the EDO's best one?</td>
+</tr>
+<tr>
+<td><strong>Minor 3rd 6/5</strong></td>
+<td>The same for the minor third (three fifths down)</td>
+</tr>
+<tr>
+<td><strong>7th 7/4</strong></td>
+<td>The harmonic seventh, against the scale's minor seventh: the
+barbershop or bluesy seventh</td>
+</tr>
+<tr>
+<td><strong>Diatonic</strong></td>
+<td>The scale's large step to its small one (2:1 in 12), or 7 equal
+steps, 5 equal steps, mavila or none</td>
+</tr>
+<tr>
+<td><strong>Meantone 81/80</strong></td>
+<td><strong>yes:</strong> a progression such as I–vi–ii–V–I comes back
+in tune, as in 12</td>
+</tr>
+<tr>
+<td><strong>Augmented 128/125</strong></td>
+<td><strong>yes:</strong> three major thirds make an octave, so the
+augmented triad splits it evenly</td>
+</tr>
+<tr>
+<td><strong>Diminished 648/625</strong></td>
+<td><strong>yes:</strong> four minor thirds make an octave, so the
+diminished seventh splits it evenly</td>
+</tr>
+</tbody>
+</table>
+<p><strong>A scale value in green</strong> is the EDO's best: a chord
+stacked in the scale gets that interval at its sweetest. Some
+examples:</p>
+<ul>
+<li><strong>19 and 31:</strong> the thirds are green. Triads in the
+scale are the EDO's best, purer than 12's. The good 7/4 is there too,
+but not on the scale's minor seventh: it's a step lower, on the
+augmented sixth.</li>
+<li><strong>22 and 53:</strong> the best major third is excellent (−4.5¢
+and −1.4¢), but the scale's is a step above it (+50¢ in 22). Stacked in
+the scale with <strong>By fifths</strong>, triads sound tense and
+Pythagorean; with <strong>Map: Nearest</strong> in 22, C–E and G–B land
+on the good 7 steps, but F–A stays at 8: the scale is no longer one
+chain of fifths, so its thirds differ chord to chord.</li>
+<li><strong>17:</strong> neither third is near 5/4 or 6/5. Its chords
+have their own bright, neutral colour, not 12's.</li>
+</ul>
+<p><strong>A comma</strong> is a tiny interval between two routes to
+"the same" note. A <strong>yes</strong> means the EDO treats the two as
+one, so chords built on that equivalence close up as they do in 12.</p>
 </section>
 <section id="dynamics" class="callout callout-note card">
 <h2>Dynamics</h2>

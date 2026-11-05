@@ -11,6 +11,9 @@
 //   by velocity after Decay), a second pass ghosted with Loop.
 // - ChordCircle: Chords' scale on a circle of N steps, the key at the top, the degrees numbered,
 //   the notes sounding lit and joined; a degree clicked shows the chord built on it.
+// - EdoPanel: Chords' This EDO, what the EDO does with chords (core/EdoFacts.h): its best fifth,
+//   thirds and seventh beside the ones the diatonic scale stacks, its diatonic steps, and three
+//   commas. A scale's value the EDO's best, or a comma tempered out, is in the accent.
 
 #ifndef NOTEGRAN_VIEWS_HPP
 #define NOTEGRAN_VIEWS_HPP
@@ -23,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "core/EdoFacts.h"
 #include "plugin_gui.h"
 
 START_NAMESPACE_DGL
@@ -526,5 +530,88 @@ private:
 };
 
 END_NAMESPACE_DGL
+
+// --- EdoPanel ------------------------------------------------------------------------------------
+
+class EdoPanel : public NanoSubWidget
+{
+public:
+    explicit EdoPanel(Widget* parent) : NanoSubWidget(parent)
+    {
+        fHasFont = loadSharedResources();
+        setEdo(12);
+    }
+
+    void setAccent(Color c) { fAccent = c; }
+    void setUiScale(float s) { fUiScale = s; repaint(); }
+    void setEdo(int edo)
+    {
+        if (edo == fEdo) return;
+        fEdo = edo;
+        notegran::factRows(notegran::edoFacts(edo), fRows);
+        repaint();
+    }
+
+protected:
+    void onNanoDisplay() override
+    {
+        using namespace views;
+        const float w = getWidth(), h = getHeight(), s = fUiScale;
+        beginPath(); roundedRect(1.5f, 1.5f, w - 3.0f, h - 3.0f, 8.0f);
+        fillColor(kBack); fill();
+        strokeColor(kBorder); strokeWidth(1.5f); stroke();
+        if (!fHasFont) return;
+
+        const float left = 12.0f * s, right = w - 12.0f * s, mid = left + (right - left) * 0.68f;
+        fontFace(NANOVG_DEJAVU_SANS_TTF);
+        fontSize(13.0f * s);
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        fillColor(fAccent);
+        char title[32];
+        std::snprintf(title, sizeof(title), "This EDO: %d", fEdo);
+        text(left, 15.0f * s, title, nullptr);
+
+        // Below the title: the column heads, the rows, and what the accent means at the foot.
+        const float top = 32.0f * s, foot = h - 14.0f * s;
+        const float rowH = std::min(18.0f * s, (foot - 10.0f * s - top) / (notegran::kFactRows + 1));
+        fontSize(10.5f * s);
+        fillColor(kDim);
+        textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        text(left, top + rowH * 0.5f, "Steps \xc2\xb7 cents off", nullptr);
+        textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
+        text(mid, top + rowH * 0.5f, "Best", nullptr);
+        text(right, top + rowH * 0.5f, "Scale's", nullptr);
+        fontSize(11.0f * s);
+        for (std::size_t i = 0; i < notegran::kFactRows; ++i)
+        {
+            const notegran::FactRow& r = fRows[i];
+            const float y = top + rowH * (static_cast<float>(i) + 1.5f);
+            textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+            fillColor(kText);
+            text(left, y, r.label, nullptr);
+            textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
+            const bool pair = r.scale[0] != '\0';
+            fillColor(!pair && r.lit ? fAccent : Color(226, 230, 236));
+            text(pair ? mid : right, y, r.best, nullptr);
+            if (pair)
+            {
+                fillColor(r.lit ? fAccent : kText);
+                text(right, y, r.scale, nullptr);
+            }
+        }
+        fontSize(10.0f * s);
+        fillColor(kDim);
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        text(left, foot, "Green: the scale stacks the EDO's best", nullptr);
+    }
+
+private:
+    notegran::FactRow fRows[notegran::kFactRows] {};
+    Color fAccent  = Color(160, 130, 220);
+    float fUiScale = 1.0f;
+    int   fEdo     = 0;
+    bool  fHasFont = false;
+};
 
 #endif // NOTEGRAN_VIEWS_HPP

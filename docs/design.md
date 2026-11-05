@@ -522,10 +522,25 @@ Every plugin gets its own editor; the generic editors were a stopgap. Decided wi
   one gesture per field moved, a handle past the plot drawn and grabbed at the edge; beside it the
   next phrase (time across Duration, pitch about the root, size by Decay, a ghost pass with Loop) over
   the live keyboard. Then Phrase, Grain, Pitch and Input.
-- **Chords (built), 920 × 600:** the scale on a circle of N steps (the key at the top, degrees
+- **Chords (built), 920 × 660:** the scale on a circle of N steps (the key at the top, degrees
   numbered, Roman with seven), the notes sounding lit and joined, a degree clicked showing its chord
   and naming its notes (with cents off 12-EDO); with a scale channel, the scale the playing plugin
-  has. Beside it Chord; then Scale and Output.
+  has. Beside it Chord; then Scale (in two rows), This EDO and Output.
+  - **The chord's intervals** (2026-11-05): each note of the chord clicked, a line each, with the just
+    ratio it's nearest above the root, octaves taken out, and its error (`core/EdoFacts.h`,
+    `nearestJust`: 25 ratios from 1/1 to 2/1, through 7- and 11-limit ones such as 7/6, 9/7, 11/9
+    and 7/4). The root is the degree's EDO step, so an inversion or voicing names the same notes the
+    same way. The nearest is always shown, so a large error says "near none of them".
+  - **This EDO** (2026-11-05, `EdoPanel` in Views.hpp): what the EDO does to chords, from its patent
+    val (v2 = N, v3, v5, v7 the nearest steps to log2 3, 5, 7 × N). Four interval rows, each with
+    the EDO's best step and the step the diatonic scale stacked from the EDO's fifth gives it, as
+    steps · cents off: the fifth (v3 − v2 both), the major third (best v5 − 2 v2, scale 2L), the minor
+    third (v2 + v3 − v5, scale L + s) and the 7/4 seventh (v7 − 2 v2, against the scale's minor
+    seventh N − L). A scale value that's the best is in the accent: stacked chords get it. Then the
+    diatonic L:s and the three commas (81/80, 128/125, 648/625), as EDOSpread12's This EDO. The
+    diatonic and comma rules are EDOSpread12's src/EdoFacts, copied (as Scales is with
+    KeyboardEDO); both move to uw-core together after the release. The scale column is By fifths'
+    scale, not what Map: Nearest makes: the chord read-out shows that one.
 - **Help** (2026-11-03): a "?" box at the header's right, StruckSynth's HelpButton as Retune adapted
   it (no caption). One source for all five effects (`resources/help.md`, in the synths' layout: an
   On This Page index, a card per effect and per shared group of settings), and a page per effect

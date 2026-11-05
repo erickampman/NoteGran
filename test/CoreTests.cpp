@@ -16,6 +16,7 @@
 #include "core/Chords.h"
 #include "core/Clock.h"
 #include "core/Cloud.h"
+#include "core/EdoFacts.h"
 #include "core/Grid.h"
 #include "core/NoteSet.h"
 #include "core/OwnedNotes.h"
@@ -2379,6 +2380,75 @@ void testBufferRepeatable() {
     CHECK(!sameEvents(runBuffer(p, in, 480000, true).events, runBuffer(q, in, 480000, true).events));
 }
 
+
+// This EDO (core/EdoFacts.h): the scale's thirds and seventh against the EDO's best, and the commas.
+// Expected values worked out by hand from the patent val; EDOSpread12's tests check the same
+// diatonic and comma rules.
+void testEdoFacts() {
+    struct Case {
+        int      edo, fifth, large, small;
+        Diatonic diatonic;
+        bool     meantone, augmented, diminished;
+        int      bestM3, scaleM3, bestm3, scalem3, best7, scale7;
+    };
+    const Case cases[] = {
+        {1,  1,  1,  -2, Diatonic::None,       false, false, false, 0,  0,  1,  0,  1,  0},
+        {5,  3,  1,  0,  Diatonic::Pentatonic, true,  false, false, 2,  2,  1,  1,  4,  4},
+        {12, 7,  2,  1,  Diatonic::Proper,     true,  true,  true,  4,  4,  3,  3,  10, 10},
+        {16, 9,  2,  3,  Diatonic::Mavila,     false, false, true,  5,  4,  4,  5,  13, 14},
+        {17, 10, 3,  1,  Diatonic::Proper,     false, false, false, 5,  6,  5,  4,  14, 14},
+        {19, 11, 3,  2,  Diatonic::Proper,     true,  false, false, 6,  6,  5,  5,  15, 16},
+        {22, 13, 4,  1,  Diatonic::Proper,     false, false, false, 7,  8,  6,  5,  18, 18},
+        {31, 18, 5,  3,  Diatonic::Proper,     true,  false, false, 10, 10, 8,  8,  25, 26},
+        {53, 31, 9,  4,  Diatonic::Proper,     false, false, false, 17, 18, 14, 13, 43, 44},
+    };
+    for (const Case& c : cases) {
+        const EdoFacts f = edoFacts(c.edo);
+        const bool ok = f.fifth == c.fifth && f.large == c.large && f.small == c.small && f.diatonic == c.diatonic &&
+                        f.meantone == c.meantone && f.augmented == c.augmented && f.diminished == c.diminished &&
+                        f.majorThird.best == c.bestM3 && f.majorThird.scale == c.scaleM3 &&
+                        f.minorThird.best == c.bestm3 && f.minorThird.scale == c.scalem3 &&
+                        f.seventh.best == c.best7 && f.seventh.scale == c.scale7;
+        CHECK(ok);
+        if (!ok)
+            std::fprintf(stderr, "  (%d-EDO: fifth %d, L:s %d:%d, M3 %d/%d, m3 %d/%d, 7th %d/%d)\n", c.edo, f.fifth,
+                         f.large, f.small, f.majorThird.best, f.majorThird.scale, f.minorThird.best,
+                         f.minorThird.scale, f.seventh.best, f.seventh.scale);
+    }
+    for (int n = 1; n <= 96; ++n) {
+        const EdoFacts f = edoFacts(n);
+        CHECK(5 * f.large + 2 * f.small == n);
+        // A meantone EDO's scale thirds are its best ones: four fifths up is 5/4.
+        if (f.meantone && f.diatonic != Diatonic::None) CHECK(f.majorThird.scale == f.majorThird.best);
+    }
+    const EdoFacts f22 = edoFacts(22);
+    CHECK(std::abs(f22.majorThird.bestError - -4.5) < 0.05 && std::abs(f22.majorThird.scaleError - 50.0) < 0.05);
+
+    // Naming: a 10th as a 3rd, a tie to the earlier, and a quarter tone as its nearest.
+    JustNear j = nearestJust(1200.0 + 381.8);
+    CHECK(j.num == 5 && j.den == 4 && std::abs(j.error - -4.5) < 0.05);
+    j = nearestJust(436.4);
+    CHECK(j.num == 9 && j.den == 7 && std::abs(j.error - 1.3) < 0.05);
+    j = nearestJust(-100.0);   // below the root: a major 7th up
+    CHECK(j.num == 15 && j.den == 8);
+    j = nearestJust(0.0);
+    CHECK(j.num == 1 && j.den == 1 && j.error == 0.0);
+    j = nearestJust(1199.0);
+    CHECK(j.num == 2 && j.den == 1);
+
+    FactRow rows[kFactRows];
+    factRows(f22, rows);
+    CHECK(std::string(rows[1].label) == "Major 3rd 5/4");
+    CHECK(std::string(rows[1].best) == "7 \xc2\xb7 -4.5\xc2\xa2" && std::string(rows[1].scale) == "8 \xc2\xb7 +50.0\xc2\xa2");
+    CHECK(!rows[1].lit && rows[3].lit);   // 22's scale 7th is its best 7/4; its third isn't
+    CHECK(std::string(rows[4].best) == "4:1" && rows[4].scale[0] == '\0');
+    CHECK(std::string(rows[5].best) == "no" && !rows[5].lit);
+    factRows(edoFacts(1), rows);
+    CHECK(std::string(rows[1].scale) == "\xe2\x80\x94" && std::string(rows[4].best) == "none");
+    factRows(edoFacts(12), rows);
+    CHECK(rows[0].lit && rows[1].lit && rows[5].lit && rows[7].lit);
+}
+
 } // namespace
 
 int main() {
@@ -2427,6 +2497,7 @@ int main() {
     testChordsMicrotonal();
     testChordsPlaying();
     testChordsScaleChannel();
+    testEdoFacts();
     testGridTiers();
     testGridPlaying();
     testGridDensityAndChaos();

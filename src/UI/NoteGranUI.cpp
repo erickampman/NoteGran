@@ -244,18 +244,21 @@ Layout bufferLayout() {
 // Chords: the scale's circle beside the chord's settings; the scale's and the output's.
 Layout chordsLayout() {
     Layout l;
-    l.width = 920, l.height = 600;
+    l.width = 920, l.height = 660;
     l.groups = {
         {"Chord", {{hSize}, {hStack}, {hInversion}, {hVoicing}, {hOctave}}, 3},
-        {"Scale", {{hScale, kNone, kNone, 2}, {hKey}, {hMap}, {hEdo}, {hOrigin}, {hInput}, {hScaleChannel}}},
-        {"Output", {{hOffScale}, {hLevel}, {hVoices}, {hWhenFull}}},
+        {"Scale", {{hScale, kNone, kNone, 2}, {hKey}, {hMap}, {hEdo}, {hOrigin}, {hInput}, {hScaleChannel}}, 4},
+        // Two columns: the menus (Off-scale, When full) on the left, Level and Voices on the right.
+        {"Output", {{hOffScale}, {hLevel}, {hWhenFull}, {hVoices}}, 2},
     };
     // Map, Origin and Input only matter off 12-EDO; Scale and Key only without a scale channel.
     l.enables = {{hMap, hEdo, 12, true}, {hOrigin, hEdo, 12, true}, {hInput, hEdo, 12, true},
                  {hScale, hScaleChannel, 0}, {hKey, hScaleChannel, 0}};
-    l.rows         = {{kMainView, 0}, {1, 2}};
-    l.rowWeights   = {5, 3};
+    // This EDO (EdoPanel) between Scale and Output, Scale in two rows to make room.
+    l.rows         = {{kMainView, 0}, {1, kSideView, 2}};
+    l.rowWeights   = {5, 4};
     l.viewCells[0] = 9;
+    l.viewCells[1] = 3;   // Scale 4, This EDO 3, Output 2: about 385, 290 (its narrowest) and 195 points
     return l;
 }
 
@@ -416,6 +419,8 @@ public:
         case NG_CHORDS:
             fCircle = std::make_unique<ChordCircle>(this, this);
             fCircle->setAccent(fAccent);
+            fEdoPanel = std::make_unique<EdoPanel>(this);
+            fEdoPanel->setAccent(fAccent);
             break;
         default: fLive = std::make_unique<LiveView>(this); break;
         }
@@ -765,9 +770,14 @@ private:
             uint32_t edo = 12, origin = 0, keyStep = 0, count = 0;
             uint8_t  steps[NG_LIVE_SCALE];
             fMenuScale = ng_chords_scale(fPlugin, &edo, &origin, &keyStep, &count, steps);
-            if (fMenuScale)
-                fCircle->setScale(static_cast<int>(edo), static_cast<int>(origin), static_cast<int>(keyStep),
-                                  std::vector<int>(steps, steps + count));
+            if (fMenuScale) {
+                fScaleEdo     = static_cast<int>(edo);
+                fScaleOrigin  = static_cast<int>(origin);
+                fScaleKeyStep = static_cast<int>(keyStep);
+                fScaleSteps.assign(steps, steps + count);
+                fCircle->setScale(fScaleEdo, fScaleOrigin, fScaleKeyStep, fScaleSteps);
+            }
+            fEdoPanel->setEdo(static_cast<int>(std::lround(fValues[hEdo])));
             updateChordPreview();
             break;
         }
@@ -800,10 +810,21 @@ private:
         else lines.push_back(std::to_string(edo) + "-EDO, mapped " + text(hMap) + ", from " + text(hOrigin));
         lines.push_back(text(hSize) + " notes in " + text(hStack) + ", " + text(hVoicing) + ", " + text(hInversion) +
                         (fValues[hInversion] < 0.5 ? " position" : " inversion"));
-        if (!chord.empty()) {
-            std::string names;
-            for (float p : chord) names += (names.empty() ? "" : "  ") + noteName(p);
-            lines.push_back(names);
+        // Each note of the chord and the just interval it's nearest above the root, octaves taken
+        // out: "E4-14¢   5/4 -4.5¢" (core/EdoFacts.h, nearestJust).
+        if (!chord.empty() && fDegree < static_cast<int>(fScaleSteps.size()) && fScaleEdo > 0) {
+            const double root = fScaleOrigin + 12.0 * (fScaleKeyStep + fScaleSteps[static_cast<std::size_t>(fDegree)]) /
+                                                   fScaleEdo;   // semitones, its pitch class
+            for (float p : chord) {
+                const notegran::JustNear j = notegran::nearestJust((p - root) * 100.0);
+                char interval[48];
+                const double error = std::round(j.error * 10.0) / 10.0;
+                if (j.num == j.den || (j.num == 2 && j.den == 1))
+                    std::snprintf(interval, sizeof(interval), "root %+.1f\xC2\xA2", error == 0.0 ? 0.0 : error);
+                else
+                    std::snprintf(interval, sizeof(interval), "%d/%d %+.1f\xC2\xA2", j.num, j.den, error == 0.0 ? 0.0 : error);
+                lines.push_back(noteName(p) + "   " + interval);
+            }
         }
         fCircle->setLines(lines);
     }
@@ -824,6 +845,7 @@ private:
         if (fLive) fLive->setUiScale(s);
         if (fScatter) fScatter->setUiScale(s);
         if (fCircle) fCircle->setUiScale(s);
+        if (fEdoPanel) fEdoPanel->setUiScale(s);
 
         // Rows by weight, items by cells; both cumulative, so rounding never drifts.
         const int rows   = static_cast<int>(fLayout.rows.size());
@@ -892,6 +914,7 @@ private:
 
     SubWidget* itemWidget(int item) const {
         if (item >= 0) return fGroups[static_cast<std::size_t>(item)].get();
+        if (item == kSideView && fKind == NG_CHORDS) return fEdoPanel.get();
         if (item == kSideView || fKind == NG_CLOUD || fKind == NG_GRID || fKind == NG_BUFFER) return fLive.get();
         if (fKind == NG_BURST) return fScatter.get();
         return fCircle.get();
@@ -908,6 +931,9 @@ private:
     std::unique_ptr<LiveView>              fLive;               // Cloud's, Grid's cycle, Burst's phrase
     std::unique_ptr<ScatterEditorView>     fScatter;            // Burst
     std::unique_ptr<ChordCircle>           fCircle;             // Chords
+    std::unique_ptr<EdoPanel>              fEdoPanel;           // Chords' This EDO
+    int                                    fScaleEdo = 12, fScaleOrigin = 9, fScaleKeyStep = 0;   // Chords' scale, as
+    std::vector<int>                       fScaleSteps;         // last read: for the chord's root
     std::unique_ptr<Logo>                  fLogo;
     std::unique_ptr<HelpButton>            fHelp;
     std::unique_ptr<PopupMenu>             fMenu;

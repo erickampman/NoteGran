@@ -834,7 +834,7 @@ void testEditor() {
         uint32_t    width, height;
     };
     for (const Design& d : {Design{kCloudId, 900, 560}, Design{kGridId, 980, 700}, Design{kBurstId, 960, 660},
-                            Design{kChordsId, 920, 600}, Design{kBufferId, 940, 600}}) {
+                            Design{kChordsId, 920, 660}, Design{kBufferId, 940, 600}}) {
         Instance r(d.id);
         CHECK(r.ok());
         if (!r.ok()) continue;
