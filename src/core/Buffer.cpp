@@ -23,16 +23,27 @@ std::int64_t BufferCore::baseLength() const noexcept {
                                                       : clock_.samplesForBeats(params_.lengthBeats);
 }
 
-// Position + Scan's phase + Spray, as a fraction of the window (Q32), from its oldest end.
-std::int64_t BufferCore::readPoint(std::int64_t time, std::int64_t index) const noexcept {
+// Position + Scan's phase (+ Spray), as a fraction of the window (Q32), from its oldest end.
+std::int64_t BufferCore::readFraction(std::int64_t time, std::int64_t index, bool withSpray) const noexcept {
     const std::int64_t w     = window();
     const std::int64_t scan  = std::clamp(params_.scan, -4 * kOne16, 4 * kOne16);
-    const std::int64_t spray = std::clamp(params_.spray, 0, kOne16);
+    const std::int64_t spray = withSpray ? std::clamp(params_.spray, 0, kOne16) : 0;
     const auto         phase = static_cast<std::int64_t>((static_cast<__int128>(scan) * time * kOne16 / w) % kOne32);
-    std::int64_t       v     = (std::int64_t{std::clamp(params_.position, 0, kOne16)} << 16) + phase +
-                     (((random_.unit(Stream::Position, index, 0) * 2 - kOne32) * spray) >> 16);
+    std::int64_t       v     = (std::int64_t{std::clamp(params_.position, 0, kOne16)} << 16) + phase;
+    if (spray != 0) v += ((random_.unit(Stream::Position, index, 0) * 2 - kOne32) * spray) >> 16;
     if (v != kOne32) v = ((v % kOne32) + kOne32) % kOne32;   // 1, unmoved, is the newest end
+    return v;
+}
+
+std::int64_t BufferCore::readPoint(std::int64_t time, std::int64_t index) const noexcept {
+    const std::int64_t w = window();
+    const std::int64_t v = readFraction(time, index, true);
     return anchor(time) - w + static_cast<std::int64_t>((static_cast<__int128>(w) * v + (kOne32 >> 1)) >> 32);   // nearest
+}
+
+void BufferCore::noteRead(std::int64_t fraction) noexcept {
+    reads_[static_cast<std::size_t>(readsMade_ % kReads)] = static_cast<std::uint32_t>(fraction >> 16);
+    ++readsMade_;
 }
 
 bool BufferCore::busy() const noexcept {
@@ -137,6 +148,7 @@ void BufferCore::startFragment(const Grain& g) noexcept {
     const std::int64_t from = e - window();
     const std::int64_t r    = readPoint(g.time, g.index);
     const std::int64_t len  = grainLength(baseLength(), params_.lenSpread, random_, g.index);
+    noteRead(readFraction(g.time, g.index, true));
 
     // A free slot (every note collected and played), else the oldest fragment's.
     int slot = -1;
@@ -189,6 +201,7 @@ void BufferCore::play(const Grain& g, NoteOut& out) noexcept {
     const std::int64_t e    = anchor(g.time);
     const std::int64_t from = e - window();
     const std::int64_t r    = readPoint(g.time, g.index);
+    noteRead(readFraction(g.time, g.index, true));
     const Note*        best = nullptr;
     for (std::int64_t s = oldest(); s < written_; ++s) {
         const Note& n = noteAt(s);

@@ -461,8 +461,16 @@ its natural producer; Buffer hears the looper's output and captures it as it pla
 - **Assigner gained** `playsWithoutSet`, `addGrain` / `dropGrains` (a grain adding grains later in
   its block) and `triggered()`; `heard()` is now called for every set note, and `collectGrains` with
   a trigger channel too (Cloud and Grid collect nothing then).
-- **Still to do:** an editor view of its own (the capture on a timeline, the read point and spray
-  over it, the fragment's span), and hearing it in StageHand behind a looper.
+- **Its view (2026-11-07, `BufferView` in Views.hpp):** the capture on a timeline over the live
+  keyboard: the window across (oldest left, now or the freeze point right), pitch up, each captured
+  note a bar (a held one reaching now); the read point (Position and Scan's drift, without Spray)
+  a line, Spray a band round it (wrapping as the reads do), a Fragment's stretch (Length from the
+  read point) a box; each grain's own read (Spray included) flashing at the top. From process(),
+  after `ng_live_t`, a second snapshot under its own sequence count (`ng_buffer_t`,
+  `ng_buffer_read`): the window in ms, frozen, Fragment, the read point, Spray, Length as a share of
+  the window, the newest 128 captured notes (start and length as Q16 shares of the window) and a
+  ring of the last 16 reads (`BufferCore::noteRead`, from `play()`). Test: `testBufferView`.
+- **Still to do:** hearing it in StageHand behind a looper.
 
 ## Later
 

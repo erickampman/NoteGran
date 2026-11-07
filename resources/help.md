@@ -186,7 +186,7 @@ Up to 16 phrases play at once, sharing Voices; a 17th replaces the oldest. A qui
 ## Buffer {#buffer}
 **Records what you play** and replays grains from the recording. Play a phrase (or put a looper in front) and Buffer explores it. Its window is 940 × 600.
 
-**The view:** the keyboard of what you're playing, each grain rising from its pitch.
+**The view:** the recording on a timeline, over the keyboard of what you're playing. Each recorded note is a bar, time across (the oldest at the left, **now** at the right, or **frozen** where Freeze stopped it) and pitch up; a note still held reaches the right edge. The white line is the **read point** (Position, moving with Scan), and the shaded band around it is **Spray**. With Grain **Fragment**, a box from the read point shows the stretch each grain replays. Each grain's actual read point flashes at the top as it plays, and its notes rise from the keyboard below.
 
 **Capture group:**
 - **Window** (seconds or beats; default 4 s / 8 beats): how far back the recording reaches (up to 512 notes).

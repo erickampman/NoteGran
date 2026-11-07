@@ -78,6 +78,32 @@ typedef struct ng_live {
 // A consistent copy of the latest; false if none could be taken just now (try again next tick).
 bool ng_live_read(const clap_plugin_t* plugin, ng_live_t* out);
 
+// Buffer: its capture and where its grains read (docs/design.md, "NoteGran Buffer"), at the last
+// block's end. Times are Q16 fractions of the window from its oldest end (65536: now, or where it
+// was frozen). The capture is the newest notes in the window, oldest first; the reads are the read
+// points the grains took lately, Spray included (a ring, numbered as notesStarted is).
+enum { NG_BUFFER_NOTES = 128, NG_BUFFER_READS = 16 };
+
+typedef struct ng_buffer {
+    uint32_t windowMs;                         // the window's length
+    bool     frozen;
+    bool     fragment;                         // Grain is Fragment
+    uint32_t readPoint;                        // Position and Scan's drift now, without Spray
+    uint32_t spray;                            // ± that much of the window
+    uint32_t span;                             // Length, as a share of the window (Fragment's stretch)
+    uint32_t readsMade;                        // ever; read k is at [k % NG_BUFFER_READS]
+    uint32_t reads[NG_BUFFER_READS];
+    uint32_t noteCount;
+    uint32_t noteStart[NG_BUFFER_NOTES];
+    uint32_t noteLength[NG_BUFFER_NOTES];      // a held note's reaches now
+    uint16_t notePitch[NG_BUFFER_NOTES];       // 1/512 semitone
+    uint16_t noteVelocity[NG_BUFFER_NOTES];
+    bool     noteHeld[NG_BUFFER_NOTES];
+} ng_buffer_t;
+
+// A consistent copy of the latest; false if none could be taken just now, or this isn't Buffer.
+bool ng_buffer_read(const clap_plugin_t* plugin, ng_buffer_t* out);
+
 // Grid, from the current settings: each slot of one cycle of its meter, as its tier (0 .. 4);
 // returns how many.
 enum { NG_GRID_CYCLE = 32 };

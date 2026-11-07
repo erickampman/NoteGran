@@ -2214,6 +2214,54 @@ void testBufferCapture() {
     CHECK(c.capture(cap) == 0 && !c.busy());
 }
 
+// The editor's view (BufferView): the window and Length, the read point now without Spray, and
+// the read points the grains took (with Spray), as Q16 of the window from its oldest end.
+void testBufferView() {
+    BufferCore c;
+    c.setSampleRate(48000.0);
+    BufferParams p = bufferBasic();
+    p.position     = kOne16 / 4;
+    p.spray        = kOne16 / 4;
+    c.setParams(p);
+    std::vector<NoteEvent> buffer(256);
+    auto block = [&](std::int64_t start, std::int64_t frames, std::vector<InputEvent> in) {
+        NoteOut out(buffer.data(), buffer.size());
+        c.process(start, frames, nullptr, in.data(), in.size(), out);
+    };
+    CHECK(c.windowSamples() == 192000 && c.lengthSamples() == 4800 && c.sampleRate() == 48000);
+
+    // A second of grains, 10 a second: each one's read noted, within Spray of the read point
+    // (round the window), and not all the same; the read point itself stays where Position is.
+    block(0, 48000, {input(0, on2(60, 0x8000)), input(2000, off2(60))});
+    CHECK(c.readPointNow() == 16384);
+    CHECK(c.readsMade() == 10);
+    bool differ = false;
+    for (std::int64_t k = 0; k < c.readsMade(); ++k) {
+        const std::int64_t at   = c.readAt(k);
+        std::int64_t       away = std::llabs(at - 16384);
+        away                    = std::min(away, 65536 - away);
+        CHECK(away <= 16384 + 1);
+        differ = differ || at != c.readAt(0);
+    }
+    CHECK(differ);
+
+    // Scan 1 crosses the window in Window's time: half a window on, the read point has moved half.
+    p.spray = 0;
+    p.scan  = kOne16;
+    c.setParams(p);
+    block(48000, 48000, {});
+    CHECK(c.readPointNow() == 16384 + 32768);
+    // Position 1, still: the newest end.
+    p.scan     = 0;
+    p.position = kOne16;
+    c.setParams(p);
+    block(96000, 100, {});
+    CHECK(c.readPointNow() == 65536);
+    // The ring keeps the latest kReads; the count goes on.
+    block(96100, 4 * 48000, {});
+    CHECK(c.readsMade() > BufferCore::kReads && c.readAt(c.readsMade() - 1) == 65536);
+}
+
 void testBufferNote() {
     BufferParams p = bufferBasic();
     // 60, then 64 from 1000 to 3000: at Position 1 (the newest end) a grain takes the latest note.
@@ -2508,6 +2556,7 @@ int main() {
     testBurstRepeatable();
     testBurstPhrasesAndTriggers();
     testBufferCapture();
+    testBufferView();
     testBufferNote();
     testBufferFragment();
     testBufferGate();

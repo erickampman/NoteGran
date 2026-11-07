@@ -57,6 +57,7 @@ using DGL_NAMESPACE::GroupBox;
 using DGL_NAMESPACE::HelpButton;
 using DGL_NAMESPACE::Knob;
 using DGL_NAMESPACE::LiveView;
+using DGL_NAMESPACE::BufferView;
 using DGL_NAMESPACE::Logo;
 using DGL_NAMESPACE::PhraseView;
 using DGL_NAMESPACE::PopupMenu;
@@ -412,6 +413,7 @@ public:
                                        EmbeddedResources::Unlikelyware_Final_ColorDataSize);
         switch (fKind) {
         case NG_GRID: fLive = std::make_unique<GridView>(this); break;
+        case NG_BUFFER: fLive = std::make_unique<BufferView>(this); break;
         case NG_BURST:
             fScatter = std::make_unique<ScatterEditorView>(this, this);
             fLive    = std::make_unique<PhraseView>(this);
@@ -530,6 +532,10 @@ protected:
         ng_live_t live;
         if (fPlugin == nullptr || !ng_live_read(fPlugin, &live)) return;
         if (fLive) fLive->update(live, secondsNow());
+        if (fKind == NG_BUFFER && fLive) {
+            ng_buffer_t buffer;
+            if (ng_buffer_read(fPlugin, &buffer)) static_cast<BufferView*>(fLive.get())->setBuffer(buffer, secondsNow());
+        }
         if (fCircle) {
             std::vector<float> sounding;
             for (uint32_t i = 0; i < live.soundingCount; ++i) sounding.push_back(live.soundingPitch[i] / 512.0f);

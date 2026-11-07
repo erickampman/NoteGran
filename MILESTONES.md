@@ -45,7 +45,7 @@
 - [x] Capture ring, Freeze, Position / Scan / Spray, Note and Fragment grains, Gate; tested
 - [x] Heard: StageHand looper feeding it, Freeze, REAPER (12-EDO only), Bitwig (microtonal output intact)
 - [x] Fragment notes keep their real length instead of being cut at the grain's end (decided 2026-10-24); replaced or reset fragments still end their sounding notes
-- [ ] An editor view of its own: the capture on a timeline, the read point and spray, the fragment's span
+- [x] An editor view of its own: the capture on a timeline, the read point and spray, the fragment's span (2026-11-07)
 
 ## M7: Editors
 - [x] DPF for drawing only (DGL, NanoVG, pugl); the house widget kit; one shell, an accent per effect

@@ -85,6 +85,20 @@ public:
     int  capture(std::array<Captured, kCapacity>& notes) const noexcept;
     bool frozen() const noexcept { return frozen_; }
 
+    // For the editor's view (docs/design.md, "NoteGran Buffer"), at the last block's end: the
+    // window and Length in samples, the read point without Spray (Q16 of the window from its oldest
+    // end, 65536 the newest), and the read points the grains took lately (with Spray; a ring,
+    // numbered so the editor can tell which are new).
+    static constexpr int kReads = 16;
+    std::int64_t  windowSamples() const noexcept { return window(); }
+    std::int64_t  lengthSamples() const noexcept { return baseLength(); }
+    std::int64_t  sampleRate() const noexcept { return clock_.sampleRate(); }
+    std::uint32_t readPointNow() const noexcept {
+        return static_cast<std::uint32_t>(readFraction(clock_.blockEnd(), 0, false) >> 16);
+    }
+    std::int64_t  readsMade() const noexcept { return readsMade_; }
+    std::uint32_t readAt(std::int64_t k) const noexcept { return reads_[static_cast<std::size_t>(k % kReads)]; }
+
 private:
     struct Note {
         std::int64_t start = 0;
@@ -119,7 +133,9 @@ private:
 
     std::int64_t window() const noexcept;
     std::int64_t anchor(std::int64_t time) const noexcept { return frozen_ ? freezeTime_ : time; }
+    std::int64_t readFraction(std::int64_t time, std::int64_t index, bool spray) const noexcept;   // Q32
     std::int64_t readPoint(std::int64_t time, std::int64_t index) const noexcept;
+    void         noteRead(std::int64_t fraction) noexcept;
     std::int64_t baseLength() const noexcept;
     const Note&  noteAt(std::int64_t serial) const noexcept { return notes_[static_cast<std::size_t>(serial % kCapacity)]; }
     std::int64_t oldest() const noexcept { return written_ > kCapacity ? written_ - kCapacity : 0; }
@@ -135,6 +151,8 @@ private:
     std::int64_t                          freezeTime_ = 0;
     std::array<Fragment, kMaxFragments>   fragments_{};
     std::int64_t                          fragmentsStarted_ = 0;
+    std::array<std::uint32_t, kReads>     reads_{};   // Q16, for the editor
+    std::int64_t                          readsMade_ = 0;
 };
 
 } // namespace notegran

@@ -389,6 +389,19 @@ struct LiveShared {
     std::atomic<std::uint32_t> words[kWords]{};
 };
 
+// Buffer's capture and reads, for its view (ng_buffer_t), written as LiveShared is. Header: window
+// ms, flags (1 frozen, 2 fragment), read point, spray, span, reads made, note count; then the reads;
+// then per note its start, length and pitch << 16 | velocity; then the held bits.
+struct BufferShared {
+    static constexpr std::size_t kHeader    = 7;
+    static constexpr std::size_t kReadBase  = kHeader;
+    static constexpr std::size_t kNoteBase  = kReadBase + NG_BUFFER_READS;
+    static constexpr std::size_t kHeldBase  = kNoteBase + 3 * NG_BUFFER_NOTES;
+    static constexpr std::size_t kWords     = kHeldBase + NG_BUFFER_NOTES / 32;
+    std::atomic<std::uint32_t> seq{0};
+    std::atomic<std::uint32_t> words[kWords]{};
+};
+
 struct Pending {
     std::int64_t               time;    // absolute
     const clap_event_header_t* event;   // passes through unchanged
@@ -418,6 +431,8 @@ struct Plugin {
     void*                    gui = nullptr;   // the editor's own state, held for it
     GuiEditRing              guiEdits;
     LiveShared               live;
+    BufferShared             bufferLive;
+    std::array<BufferCore::Captured, BufferCore::kCapacity> captured{};   // audio thread: publishBuffer's
     std::uint32_t            notesStarted = 0;   // audio thread
     std::array<std::uint32_t, NG_LIVE_NOTES> recentNotes{};
     struct Sounding {
@@ -718,6 +733,47 @@ void publishLive(Plugin* p, const NoteOut& notes) {
     l.seq.store(s + 2, std::memory_order_release);
 }
 
+// Buffer's snapshot for its view (ng_buffer_read).
+void publishBuffer(Plugin* p) {
+    BufferCore* b = p->buffer.get();
+    if (b == nullptr) return;
+    const std::int64_t w     = std::max<std::int64_t>(b->windowSamples(), 1);
+    auto               share = [&](std::int64_t samples) {
+        return static_cast<std::uint32_t>(std::clamp<std::int64_t>((samples * 65536 + w / 2) / w, 0, 65536));
+    };
+    const int n     = b->capture(p->captured);
+    const int first = std::max(0, n - int{NG_BUFFER_NOTES});
+    const int count = n - first;
+    const double rate = static_cast<double>(std::max<std::int64_t>(b->sampleRate(), 1));
+
+    BufferShared&       l = p->bufferLive;
+    const std::uint32_t s = l.seq.load(std::memory_order_relaxed);
+    l.seq.store(s + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    l.words[0].store(static_cast<std::uint32_t>(std::lround(static_cast<double>(w) * 1000.0 / rate)), std::memory_order_relaxed);
+    l.words[1].store((b->frozen() ? 1u : 0u) | (intValue(p, kBfGrain) == 1 ? 2u : 0u), std::memory_order_relaxed);
+    l.words[2].store(std::min<std::uint32_t>(b->readPointNow(), 65536), std::memory_order_relaxed);
+    l.words[3].store(static_cast<std::uint32_t>(toQ16(value(p, kBfSpray))), std::memory_order_relaxed);
+    l.words[4].store(share(b->lengthSamples()), std::memory_order_relaxed);
+    l.words[5].store(static_cast<std::uint32_t>(b->readsMade()), std::memory_order_relaxed);
+    l.words[6].store(static_cast<std::uint32_t>(count), std::memory_order_relaxed);
+    for (std::size_t i = 0; i < NG_BUFFER_READS; ++i)
+        l.words[BufferShared::kReadBase + i].store(b->readAt(static_cast<std::int64_t>(i)), std::memory_order_relaxed);
+    std::uint32_t held[NG_BUFFER_NOTES / 32] = {};
+    for (int i = 0; i < count; ++i) {
+        const BufferCore::Captured& c    = p->captured[static_cast<std::size_t>(first + i)];
+        const std::size_t           base = BufferShared::kNoteBase + 3 * static_cast<std::size_t>(i);
+        const auto pitch = static_cast<std::uint32_t>(std::clamp<std::int32_t>(c.pitch, 0, 0xFFFF));
+        l.words[base].store(share(c.start), std::memory_order_relaxed);
+        l.words[base + 1].store(share(c.length), std::memory_order_relaxed);
+        l.words[base + 2].store(pitch << 16 | c.velocity, std::memory_order_relaxed);
+        if (c.held) held[i / 32] |= 1u << (i % 32);
+    }
+    for (std::size_t i = 0; i < NG_BUFFER_NOTES / 32; ++i)
+        l.words[BufferShared::kHeldBase + i].store(held[i], std::memory_order_relaxed);
+    l.seq.store(s + 2, std::memory_order_release);
+}
+
 void storeParam(Plugin* p, const clap_event_param_value_t* ev) {
     if (ev->param_id >= p->def->count) return;
     p->values[ev->param_id].store(clampParam(*p->def, ev->param_id, ev->value), std::memory_order_relaxed);
@@ -987,6 +1043,7 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
         }
     }
     publishLive(p, notes);
+    publishBuffer(p);
     const bool busy = (p->assigner && p->assigner->busy()) || (p->chords && p->chords->busy());
     return busy ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_SLEEP;
 }
@@ -1080,7 +1137,10 @@ bool params_value_to_text(const clap_plugin_t* plugin, clap_id id, double v, cha
     if (s.kind == Kind::Menu) std::snprintf(out, size, "%s", s.labels[step - static_cast<int>(s.min)]);
     else if (step == 0 && zeroText(def, id) != nullptr) std::snprintf(out, size, "%s", zeroText(def, id));
     else if (s.kind == Kind::Stepped) std::snprintf(out, size, "%d", step);
-    else std::snprintf(out, size, *s.unit ? "%.3g %s" : "%.3g", v, s.unit);
+    else {
+        if (std::fabs(v) < 1e-6 * (s.max - s.min)) v = 0.0;   // a knob's float leftover at zero ("7.45e-09")
+        std::snprintf(out, size, *s.unit ? "%.3g %s" : "%.3g", v, s.unit);
+    }
     return true;
 }
 
@@ -1447,6 +1507,36 @@ bool ng_live_read(const clap_plugin_t* plugin, ng_live_t* out) {
     out->scaleCount   = std::min<std::uint32_t>(w[LiveShared::kScaleBase + 3], NG_LIVE_SCALE);
     for (std::size_t i = 0; i < NG_LIVE_SCALE; ++i)
         out->scaleSteps[i] = static_cast<std::uint8_t>(w[LiveShared::kScaleBase + 4 + i / 4] >> (8 * (i % 4)));
+    return true;
+}
+
+bool ng_buffer_read(const clap_plugin_t* plugin, ng_buffer_t* out) {
+    Plugin* p = self(plugin);
+    if (!p->buffer) return false;
+    BufferShared&       l = p->bufferLive;
+    const std::uint32_t s = l.seq.load(std::memory_order_acquire);
+    if (s & 1) return false;
+    std::uint32_t w[BufferShared::kWords];
+    for (std::size_t i = 0; i < BufferShared::kWords; ++i) w[i] = l.words[i].load(std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    if (l.seq.load(std::memory_order_relaxed) != s) return false;
+    out->windowMs  = w[0];
+    out->frozen    = (w[1] & 1u) != 0;
+    out->fragment  = (w[1] & 2u) != 0;
+    out->readPoint = w[2];
+    out->spray     = w[3];
+    out->span      = w[4];
+    out->readsMade = w[5];
+    out->noteCount = std::min<std::uint32_t>(w[6], NG_BUFFER_NOTES);
+    for (std::size_t i = 0; i < NG_BUFFER_READS; ++i) out->reads[i] = w[BufferShared::kReadBase + i];
+    for (std::size_t i = 0; i < NG_BUFFER_NOTES; ++i) {
+        const std::size_t base = BufferShared::kNoteBase + 3 * i;
+        out->noteStart[i]    = w[base];
+        out->noteLength[i]   = w[base + 1];
+        out->notePitch[i]    = static_cast<std::uint16_t>(w[base + 2] >> 16);
+        out->noteVelocity[i] = static_cast<std::uint16_t>(w[base + 2]);
+        out->noteHeld[i]     = ((w[BufferShared::kHeldBase + i / 32] >> (i % 32)) & 1u) != 0;
+    }
     return true;
 }
 

@@ -7,6 +7,8 @@
 //   fading. Its subclasses draw their own band above the rising notes.
 // - GridView: one cycle of Grid's meter, each slot a bar as tall as its tier is strong and as
 //   bright as its Probability, the playhead on the slot now, and slots flashing as they play.
+// - BufferView: Buffer's capture on a timeline (the window across, pitch up), the read point,
+//   Spray's band, a Fragment's stretch, and each grain's read flashing.
 // - PhraseView: Burst's next phrase (time across Duration, pitch up and down from the root, size
 //   by velocity after Decay), a second pass ghosted with Loop.
 // - ChordCircle: Chords' scale on a circle of N steps, the key at the top, the degrees numbered,
@@ -342,6 +344,205 @@ private:
     float              fRange = 12.0f, fDecay = 0.5f;
     bool               fLoop = false;
     std::string        fDuration;
+};
+
+// --- BufferView ----------------------------------------------------------------------------------
+
+class BufferView : public LiveView
+{
+public:
+    explicit BufferView(Widget* parent) : LiveView(parent) {}
+
+    // A new reading of the capture and the reads; `now` in seconds.
+    void setBuffer(const ng_buffer_t& b, double now)
+    {
+        fWindowMs = b.windowMs;
+        fFrozen   = b.frozen;
+        fFragment = b.fragment;
+        fRead     = std::min(b.readPoint, 65536u) / 65536.0f;
+        fSpray    = std::min(b.spray, 65536u) / 65536.0f;
+        fSpan     = std::min(b.span, 65536u) / 65536.0f;
+        fCaptured.clear();
+        for (uint32_t i = 0; i < b.noteCount; ++i)
+            fCaptured.push_back({b.noteStart[i] / 65536.0f, b.noteLength[i] / 65536.0f, b.notePitch[i] / 512.0f,
+                                 b.noteVelocity[i] / 65535.0f, b.noteHeld[i]});
+        if (!fReadsSeen)   // the first reading: what came before isn't new
+        {
+            fReadsSeen = true;
+            fReadsMade = b.readsMade;
+        }
+        const uint32_t fresh = std::min<uint32_t>(b.readsMade - fReadsMade, NG_BUFFER_READS);
+        for (uint32_t k = b.readsMade - fresh; k != b.readsMade; ++k)
+            fReads.push_back({b.reads[k % NG_BUFFER_READS] / 65536.0f, now});
+        fReadsMade = b.readsMade;
+        fReads.erase(std::remove_if(fReads.begin(), fReads.end(), [&](const Read& r) { return now - r.born > kReadLife; }),
+                     fReads.end());
+        if (fReads.size() > 64) fReads.erase(fReads.begin(), fReads.end() - 64);
+        fNowB = now;
+        followPitches();
+        repaint();
+    }
+
+protected:
+    float topShare() const override { return 0.62f; }
+    const char* emptyHint() const override { return nullptr; }
+
+    // The capture as a timeline: the window across, oldest at the left and now (or where it was
+    // frozen) at the right, pitch up. The read point a line, Spray a band around it, a Fragment's
+    // stretch a box from it; each grain's read flashes at the top.
+    void drawTop(float x, float y, float w, float h) override
+    {
+        using namespace views;
+        const float s = fUiScale, labelH = 14.0f * s;
+        const float px = x, py = y, pw = w, ph = std::max(1.0f, h - labelH);
+        auto xAt = [&](float f) { return px + std::clamp(f, 0.0f, 1.0f) * pw; };
+
+        beginPath(); roundedRect(px, py, pw, ph, 4.0f * s);
+        fillColor(Color(27, 30, 36)); fill();
+        for (int q = 1; q < 4; ++q)   // quarters of the window
+        {
+            beginPath(); moveTo(xAt(q / 4.0f), py); lineTo(xAt(q / 4.0f), py + ph);
+            strokeColor(withAlpha(kBorder, 0.6f)); strokeWidth(1.0f); stroke();
+        }
+
+        const float span = fHi - fLo + 1.0f, rowH = ph / span;
+        auto yOf = [&](float pitch) { return py + ph - (pitch - fLo + 0.5f) * rowH; };
+        for (int k = static_cast<int>(std::ceil(fLo)); k <= static_cast<int>(fHi); ++k)   // each C, faint
+        {
+            if (k % 12 != 0) continue;
+            beginPath(); moveTo(px, yOf(static_cast<float>(k)) + rowH * 0.5f); lineTo(px + pw, yOf(static_cast<float>(k)) + rowH * 0.5f);
+            strokeColor(withAlpha(kBorder, 0.45f)); strokeWidth(1.0f); stroke();
+            if (fHasFont)
+            {
+                char name[16];
+                std::snprintf(name, sizeof(name), "C%d", k / 12 - 1);
+                fontFace(NANOVG_DEJAVU_SANS_TTF);
+                fontSize(9.0f * s);
+                textAlign(ALIGN_LEFT | ALIGN_BOTTOM);
+                fillColor(withAlpha(kDim, 0.8f));
+                text(px + 3.0f * s, yOf(static_cast<float>(k)) + rowH * 0.5f - 1.0f, name, nullptr);
+            }
+        }
+
+        // Spray: ± around the read point, wrapping round the window as the reads do.
+        if (fSpray > 0.0f)
+        {
+            const float lo = fRead - fSpray, hi = fRead + fSpray;
+            for (int off = -1; off <= 1; ++off)
+            {
+                const float a = std::max(0.0f, lo + off), b = std::min(1.0f, hi + off);
+                if (b <= a) continue;
+                beginPath(); rect(xAt(a), py, xAt(b) - xAt(a), ph);
+                fillColor(withAlpha(fAccent, 0.13f)); fill();
+            }
+        }
+        // A Fragment's stretch: Length from the read point (notes starting in it are replayed).
+        if (fFragment && fSpan > 0.0f)
+        {
+            const float a = xAt(fRead), b = xAt(fRead + fSpan);
+            beginPath(); rect(a, py + 1.0f, std::max(1.5f * s, b - a), ph - 2.0f);
+            fillColor(withAlpha(fAccent, 0.16f)); fill();
+            strokeColor(withAlpha(fAccent, 0.55f)); strokeWidth(1.0f * s); stroke();
+        }
+
+        // The captured notes: a bar from each start to its end (a held one's reaches now).
+        const float barH = std::clamp(rowH * 0.8f, 2.0f * s, 7.0f * s);
+        for (const Captured& c : fCaptured)
+        {
+            const float x0 = xAt(c.start), x1 = std::max(x0 + 2.0f * s, xAt(c.start + c.length));
+            beginPath(); roundedRect(x0, yOf(c.pitch) - barH * 0.5f, x1 - x0, barH, std::min(2.0f * s, barH * 0.5f));
+            const Color col = c.held ? lighten(fAccent, 0.35f) : fAccent;
+            fillColor(withAlpha(col, 0.35f + 0.6f * c.velocity)); fill();
+        }
+
+        // The read point now (Position and Scan's drift), and each grain's read flashing at the top.
+        const float rx = xAt(fRead);
+        beginPath(); moveTo(rx, py); lineTo(rx, py + ph);
+        strokeColor(Color(236, 240, 245)); strokeWidth(1.5f * s); stroke();
+        beginPath(); moveTo(rx - 5.0f * s, py); lineTo(rx + 5.0f * s, py); lineTo(rx, py + 6.0f * s); closePath();
+        fillColor(Color(236, 240, 245)); fill();
+        for (const Read& r : fReads)
+        {
+            const float a  = 1.0f - static_cast<float>((fNowB - r.born) / kReadLife);
+            const float x0 = xAt(r.at);
+            beginPath(); moveTo(x0, py); lineTo(x0, py + ph * 0.35f);
+            strokeColor(withAlpha(lighten(fAccent, 0.45f), 0.9f * a)); strokeWidth(2.0f * s); stroke();
+            if (fFragment && fSpan > 0.0f)
+            {
+                beginPath(); rect(x0, py, std::max(1.0f, xAt(r.at + fSpan) - x0), 3.0f * s);
+                fillColor(withAlpha(lighten(fAccent, 0.45f), 0.7f * a)); fill();
+            }
+        }
+        if (fFrozen)
+        {
+            beginPath(); moveTo(px + pw - 1.0f, py); lineTo(px + pw - 1.0f, py + ph);
+            strokeColor(fAccent); strokeWidth(2.0f * s); stroke();
+        }
+        beginPath(); roundedRect(px, py, pw, ph, 4.0f * s);
+        strokeColor(kBorder); strokeWidth(1.0f); stroke();
+
+        if (!fHasFont) return;
+        fontFace(NANOVG_DEJAVU_SANS_TTF);
+        fontSize(10.0f * s);
+        textAlign(ALIGN_LEFT | ALIGN_TOP);
+        fillColor(kDim);
+        char age[32];
+        if (fWindowMs < 1000) std::snprintf(age, sizeof(age), "\xE2\x88\x92%u ms", fWindowMs);
+        else std::snprintf(age, sizeof(age), "\xE2\x88\x92%.3g s", fWindowMs / 1000.0);
+        text(px, py + ph + 2.0f * s, age, nullptr);
+        textAlign(ALIGN_RIGHT | ALIGN_TOP);
+        fillColor(fFrozen ? fAccent : kDim);
+        text(px + pw, py + ph + 2.0f * s, fFrozen ? "frozen" : "now", nullptr);
+        textAlign(ALIGN_CENTER | ALIGN_TOP);
+        fillColor(kDim);
+        text(px + pw * 0.5f, py + ph + 2.0f * s, fFragment ? "read point, Spray, and the fragment's stretch"
+                                                            : "read point and Spray", nullptr);
+        if (fCaptured.empty())
+        {
+            fontSize(12.0f * s);
+            textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+            text(px + pw * 0.5f, py + ph * 0.5f,
+                 fFrozen ? "Frozen with nothing captured" : "Play notes: the last Window of them is kept here, and grains read it",
+                 nullptr);
+        }
+    }
+
+private:
+    struct Captured { float start, length, pitch, velocity; bool held; };
+    struct Read { float at; double born; };
+    static constexpr double kReadLife = 0.8;
+
+    // An octave and a half at least, around the captured notes; widened at once, narrowed only when
+    // they're well inside, and kept while nothing is captured.
+    void followPitches()
+    {
+        float lo = 1000.0f, hi = -1000.0f;
+        for (const Captured& c : fCaptured) lo = std::min(lo, c.pitch), hi = std::max(hi, c.pitch);
+        if (lo > hi) return;
+        lo = std::floor(lo) - 2.0f;
+        hi = std::ceil(hi) + 2.0f;
+        if (hi - lo < 18.0f)
+        {
+            const float mid = (lo + hi) * 0.5f;
+            lo = mid - 9.0f;
+            hi = mid + 9.0f;
+        }
+        if (lo < fLo || hi > fHi || (lo > fLo + 12.0f && hi < fHi - 12.0f))
+        {
+            fLo = std::max(0.0f, lo);
+            fHi = std::min(127.0f, hi);
+        }
+    }
+
+    std::vector<Captured> fCaptured;
+    std::vector<Read>     fReads;
+    bool                  fReadsSeen = false;
+    uint32_t              fReadsMade = 0;
+    uint32_t              fWindowMs  = 4000;
+    bool                  fFrozen = false, fFragment = false;
+    float                 fRead = 0.5f, fSpray = 0.0f, fSpan = 0.0f;
+    float                 fLo = 54.0f, fHi = 72.0f;
+    double                fNowB = 0.0;
 };
 
 // --- ChordCircle ---------------------------------------------------------------------------------
