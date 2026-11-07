@@ -29,7 +29,7 @@
 - [x] Size, Stack, Inversion, Voicing, Octave; Off-scale Pass | Nearest degree | Drop
 - [x] Tested in the core and through the .clap; clap-validator clean
 - [x] Heard in StageHand: KeyboardEDO → Chords → a synth (2026-10-21)
-- [ ] Heard: C lydian dominant in 19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud
+- [x] Heard: C lydian dominant in 19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud (2026-11-07)
 
 ## M4: NoteGran Grid
 - [x] Meters and tiers after PolygraphModular's ClockGran; per-tier Probability, Level, Offset, Chaos, Pick
@@ -39,7 +39,7 @@
 ## M5: NoteGran Burst
 - [x] IFS attractor phrases, Release Finish | Stop | Loop, Vary; tested; clap-validator clean
 - [x] Heard with notes (2026-10-24)
-- [ ] Checked: Loop and Stop; a trigger channel
+- [x] Checked: Loop and Stop; a trigger channel (2026-11-07)
 
 ## M6: NoteGran Buffer
 - [x] Capture ring, Freeze, Position / Scan / Spray, Note and Fragment grains, Gate; tested

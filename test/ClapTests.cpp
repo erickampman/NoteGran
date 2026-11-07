@@ -350,6 +350,10 @@ void testParams() {
     CHECK(r.params->value_to_text(r.plugin, pTriggerChannel, 10, text, sizeof(text)) && std::strcmp(text, "10") == 0);
     CHECK(r.params->value_to_text(r.plugin, pSeed, 0, text, sizeof(text)) && std::strcmp(text, "New each start") == 0);
     CHECK(r.params->value_to_text(r.plugin, pLengthMs, 250, text, sizeof(text)) && std::strcmp(text, "250 ms") == 0);
+    // Whole numbers from 1000 up, not "2.6e+03 ms"; and a knob's leftover at zero is 0.
+    CHECK(r.params->value_to_text(r.plugin, pLengthMs, 2600, text, sizeof(text)) && std::strcmp(text, "2600 ms") == 0);
+    CHECK(r.params->value_to_text(r.plugin, pLengthMs, 1234.6, text, sizeof(text)) && std::strcmp(text, "1235 ms") == 0);
+    CHECK(r.params->value_to_text(r.plugin, pLengthMs, 12.34, text, sizeof(text)) && std::strcmp(text, "12.3 ms") == 0);
     double v = -1;
     CHECK(r.params->text_to_value(r.plugin, pPick, "Played", &v) && v == 4);
     CHECK(r.params->text_to_value(r.plugin, pTriggerChannel, "None", &v) && v == 0);

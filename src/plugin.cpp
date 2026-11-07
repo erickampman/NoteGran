@@ -1139,7 +1139,11 @@ bool params_value_to_text(const clap_plugin_t* plugin, clap_id id, double v, cha
     else if (s.kind == Kind::Stepped) std::snprintf(out, size, "%d", step);
     else {
         if (std::fabs(v) < 1e-6 * (s.max - s.min)) v = 0.0;   // a knob's float leftover at zero ("7.45e-09")
-        std::snprintf(out, size, *s.unit ? "%.3g %s" : "%.3g", v, s.unit);
+        // Three figures, but whole numbers from 1000 up: %.3g would print 2600 as "2.6e+03".
+        const char* number = std::fabs(v) >= 1000.0 ? "%.0f" : "%.3g";
+        char        text[32];
+        std::snprintf(text, sizeof text, number, v);
+        std::snprintf(out, size, *s.unit ? "%s %s" : "%s", text, s.unit);
     }
     return true;
 }
