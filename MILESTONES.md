@@ -22,7 +22,7 @@
 - [x] CLAP plugin: factory, note ports, 25 parameters, state; clap-validator clean; headless host test
 - [x] Heard in StageHand: KeyboardEDO → Cloud → a synth (2026-10-21)
 - [x] Heard in Bitwig with notes (2026-10-24)
-- [ ] Heard: a one-slot sequence as the set; KeyboardEDO in 31-EDO with Quantize EDO
+- [x] Heard: a one-slot sequence as the set; KeyboardEDO in 31-EDO with Quantize EDO
 
 ## M3: NoteGran Chords
 - [x] Familiar scales stored spelled, mapped into any EDO (By fifths | Nearest); scale from a channel
@@ -39,7 +39,7 @@
 ## M5: NoteGran Burst
 - [x] IFS attractor phrases, Release Finish | Stop | Loop, Vary; tested; clap-validator clean
 - [x] Heard with notes (2026-10-24)
-- [x] Checked: Loop and Stop; a trigger channel (2026-11-07)
+- [x] Checked: Loop and Stop; a trigger channel
 
 ## M6: NoteGran Buffer
 - [x] Capture ring, Freeze, Position / Scan / Spray, Note and Fragment grains, Gate; tested
