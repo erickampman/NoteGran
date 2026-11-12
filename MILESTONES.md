@@ -56,7 +56,7 @@
 ## M8: Hosts (by hand)
 - [x] Bitwig, Linux, CLAP: all five effects, microtonal output reaches the synth (2026-10-24)
 - [x] REAPER, Linux: works, but plays the output as 12-EDO (2026-10-24)
-- [x] Bitwig and REAPER on macOS. REAPER 7.79 on the Mac (2026-11-12): all five effects (Cloud, Chords, Grid, Burst, Buffer) drive StruckSynth's AUv2 and its CLAP with notes, and the parameters work. A saved project reopens with its settings. The synths' side was covered by Retune's CLAP in front of all seven (VST3 and AUv2). Bitwig on the Mac, CLAP (2026-11-12): Chords in a non-12 EDO plays the microtonal notes, the editors move (Chords' circle, the live views: the timer fallback, `78e9db2`), and a saved project reopens with its settings
+- [x] Bitwig and REAPER on macOS. REAPER 7.79 on the Mac (2026-11-12): all five effects (Cloud, Chords, Grid, Burst, Buffer) drive StruckSynth's AUv2 and its CLAP with notes, and the parameters work. A saved project reopens with its settings. The synths' side was covered by Retune's CLAP in front of all seven (VST3 and AUv2). Bitwig on the Mac, CLAP (2026-11-12): Chords in a non-12 EDO plays the microtonal notes, the editors move (Chords' circle, the live views: the timer fallback, `78e9db2`), and a saved project reopens with its settings. StageHand on the Mac (2026-11-12): Chords in a non-12 EDO plays its microtonal notes, and a saved set reopens as saved (ReleaseUMP R3-4)
 - [ ] StageHand on both platforms, KeyboardEDO driving it
 
 ## M9: Other formats (clap-wrapper)
