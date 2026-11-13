@@ -34,8 +34,7 @@ Of those libraries NoteGran uses only the X11 and OpenGL ones, for the editors. 
 with `UW_CORE_UMP_ONLY`, which makes only `uw::ump` (no JACK, ALSA, CoreAudio or CoreMIDI). The
 editors use DPF (`external/dpf`) for drawing only: DGL, NanoVG and pugl, as StruckSynth does. DPF is
 the author's fork (`erickampman/DPF`, which pins the pugl fork `erickampman/pugl`), as every DPF
-user's is; while the repos are private, cloning needs access to both. Python 3 embeds the logo at
-build time.
+user's is. Python 3 embeds the logo at build time.
 
 ## Get the source
 
