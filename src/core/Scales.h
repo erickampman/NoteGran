@@ -17,12 +17,16 @@
 namespace notegran {
 
 struct FamiliarScale {
+    static constexpr std::size_t kMaxDegrees = 8;   // the diminished scales
+
     const char*  name;
     std::uint8_t count;
-    std::int8_t  fifths[7];   // ascending in 12-EDO pitch from the key
+    std::int8_t  fifths[kMaxDegrees];   // ascending in 12-EDO pitch from the key
 };
 
 // The menu, in order (the parameter's steps). Appended, never inserted: saved songs hold the index.
+// Degree 0 is usually the key, but needn't be: "Diminished (from the 2nd)" leaves the key out, and
+// its degree 0 is a half step above it. Degrees are always counted up from the key.
 const FamiliarScale* familiarScales() noexcept;
 std::size_t          familiarScaleCount() noexcept;
 
@@ -42,7 +46,7 @@ struct EdoScale {
 
     int          edo     = 12;
     int          origin  = 9;     // pitch class of step 0
-    int          keyStep = 0;     // the key's step above the origin, 0 .. edo - 1
+    int          keyStep = 0;     // the key's step above the origin, 0 .. edo - 1 (in the scale or not)
     std::size_t  count   = 0;
     std::array<std::int32_t, kMaxDegrees> steps{};      // above the key, 0 .. edo - 1, ascending
     // A familiar scale's degrees as 12-EDO semitones above the key (for Input: Familiar), and its
@@ -60,8 +64,9 @@ struct EdoScale {
     int degreeOfStep(std::int64_t step) const noexcept;
     // The degree whose familiar 12-EDO pitch class is this key's, or -1 (familiar scales only).
     int degreeOfSemitone(int midiKey) const noexcept;
-    // The absolute step of degree d above the key at absolute step `base` (degree 0's step). Any
-    // integer d: count is the next octave's degree 0, -1 the octave below's last degree.
+    // The absolute step of degree d above the key at absolute step `base` (the key's step, which is
+    // degree 0's unless the scale leaves the key out). Any integer d: count is the next octave's
+    // degree 0, -1 the octave below's last degree.
     std::int64_t stepOfDegree(int degree, std::int64_t base) const noexcept;
 };
 

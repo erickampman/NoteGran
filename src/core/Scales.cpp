@@ -37,6 +37,11 @@ constexpr FamiliarScale kScales[] = {
     {"Major pentatonic", 5, {0, 2, 4, 1, 3}},
     {"Minor pentatonic", 5, {0, -3, -1, 1, -2}},
     {"Whole tone", 6, {0, 2, 4, 6, 8, 10}},
+    // The diminished scale's three 8-note sets, a half step apart, each as two diminished sevenths.
+    {"Diminished (whole-half)", 8, {0, 2, -3, -1, -6, -4, 3, 5}},     // C D Eb F Gb Ab A B
+    {"Diminished (half-whole)", 8, {0, -5, -3, 4, 6, 1, 3, -2}},      // C Db Eb E F# G A Bb
+    {"Diminished (from the 2nd)", 8, {-5, 2, 4, -1, 1, -4, -2, 5}},   // Db D E F G Ab Bb B: no C
+    {"Blues", 6, {0, -3, -1, -6, 1, -2}},                             // C Eb F Gb G Bb
 };
 
 std::int64_t mod(std::int64_t a, std::int64_t n) noexcept { return ((a % n) + n) % n; }
@@ -117,11 +122,11 @@ EdoScale mapFamiliar(const FamiliarScale& scale, int keyFifths, int edo, int ori
     s.keyPitchClass = semitonesOf(keyFifths);
 
     // Each degree's steps above the key; ascending, and a degree landing on a step already taken
-    // merges into it.
+    // merges into it. The key itself needn't be among them (Diminished (from the 2nd)).
     struct Degree { std::int32_t step; std::int8_t semis; };
-    std::array<Degree, 7> d{};
+    std::array<Degree, FamiliarScale::kMaxDegrees> d{};
     std::size_t           n = 0;
-    for (std::uint8_t i = 0; i < scale.count && i < 7; ++i) {
+    for (std::uint8_t i = 0; i < scale.count && i < FamiliarScale::kMaxDegrees; ++i) {
         const auto step = static_cast<std::int32_t>(stepsOf(scale.fifths[i], s.edo, map));
         bool       seen = false;
         for (std::size_t j = 0; j < n; ++j) seen = seen || d[j].step == step;

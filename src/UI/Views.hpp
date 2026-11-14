@@ -596,12 +596,21 @@ protected:
         // The chord shown: what's sounding, else the degree clicked.
         const bool live = !fSounding.empty();
         drawChord(live ? fSounding : fPreview, live ? 1.0f : 0.55f);
-        // The degrees, numbered; the key's larger.
+        // The degrees, numbered; the key's larger. A scale without its key (Diminished (from the
+        // 2nd)) has the key's place ringed, empty.
+        if (!fSteps.empty() && std::find(fSteps.begin(), fSteps.end(), 0) == fSteps.end())
+        {
+            float x, y;
+            at(0, fR, x, y);
+            beginPath(); circle(x, y, 7.0f * s);
+            fillColor(kBack); fill();
+            strokeColor(withAlpha(fAccent, 0.8f)); strokeWidth(1.5f * s); stroke();
+        }
         for (std::size_t d = 0; d < fSteps.size(); ++d)
         {
             float x, y;
             at(fSteps[d], fR, x, y);
-            const bool key = d == 0, chosen = static_cast<int>(d) == fPreviewDegree && !live;
+            const bool key = fSteps[d] == 0, chosen = static_cast<int>(d) == fPreviewDegree && !live;
             beginPath(); circle(x, y, (key ? 7.0f : 5.5f) * s);
             fillColor(chosen ? lighten(fAccent, 0.3f) : withAlpha(fAccent, key ? 0.95f : 0.7f)); fill();
             if (fHasFont)

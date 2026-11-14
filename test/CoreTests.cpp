@@ -1500,10 +1500,11 @@ std::vector<int> stepsOf(const EdoScale& s) {
 }
 
 void testScales() {
-    // Every familiar scale starts on its key and ascends in 12-EDO, with no degree twice.
+    // Every familiar scale starts on its key (but one) and ascends in 12-EDO, with no degree twice.
+    const FamiliarScale* fromThe2nd = &scaleNamed("Diminished (from the 2nd)");
     for (std::size_t i = 0; i < familiarScaleCount(); ++i) {
         const FamiliarScale& f = familiarScales()[i];
-        CHECK(f.count >= 5 && f.fifths[0] == 0);
+        CHECK(f.count >= 5 && f.count <= FamiliarScale::kMaxDegrees && (f.fifths[0] == 0) == (&f != fromThe2nd));
         int last = -1;
         for (std::uint8_t d = 0; d < f.count; ++d) {
             const int semis = ((f.fifths[d] * 7) % 12 + 12) % 12;
@@ -1511,7 +1512,13 @@ void testScales() {
             last = semis;
         }
     }
-    CHECK(familiarScaleCount() == 25);
+    // The 29 the Unlikelyware products share (KeyboardEDO, EDOSpread12): the last four, in order.
+    CHECK(familiarScaleCount() == 29);
+    CHECK(std::string(familiarScales()[24].name) == "Whole tone");
+    CHECK(std::string(familiarScales()[25].name) == "Diminished (whole-half)");
+    CHECK(std::string(familiarScales()[26].name) == "Diminished (half-whole)");
+    CHECK(std::string(familiarScales()[27].name) == "Diminished (from the 2nd)");
+    CHECK(std::string(familiarScales()[28].name) == "Blues");
 
     CHECK(edoFifth(12) == 7 && edoFifth(19) == 11 && edoFifth(31) == 18 && edoFifth(22) == 13);
     CHECK(edoFifth(17) == 10 && edoFifth(24) == 14 && edoFifth(5) == 3 && edoFifth(7) == 4);
@@ -1551,6 +1558,22 @@ void testScales() {
     // A key: G major in 12-EDO from C.
     s = mapFamiliar(scaleNamed("Major (Ionian)"), 1, 12, 0, MapBy::Fifths);
     CHECK(s.keyStep == 7 && s.keyPitchClass == 7 && s.degreeOfSemitone(66) == 6 && s.degreeOfSemitone(65) == -1);
+
+    // The diminished scales and Blues, in 12-EDO from C.
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Diminished (whole-half)"), 0, 12, 0, MapBy::Fifths)) ==
+          std::vector<int>({0, 2, 3, 5, 6, 8, 9, 11}));
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Diminished (half-whole)"), 0, 12, 0, MapBy::Nearest)) ==
+          std::vector<int>({0, 1, 3, 4, 6, 7, 9, 10}));
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Blues"), 0, 12, 0, MapBy::Fifths)) == std::vector<int>({0, 3, 5, 6, 7, 10}));
+    // 19-EDO by fifths: C D Eb F Gb Ab A B, eight distinct steps.
+    CHECK(stepsOf(mapFamiliar(scaleNamed("Diminished (whole-half)"), 0, 19, 0, MapBy::Fifths)) ==
+          std::vector<int>({0, 3, 5, 8, 10, 13, 14, 17}));
+    // From the 2nd: the key isn't a degree; degree 0 is a half step above it.
+    s = mapFamiliar(*fromThe2nd, 0, 12, 0, MapBy::Fifths);
+    CHECK(stepsOf(s) == std::vector<int>({1, 2, 4, 5, 7, 8, 10, 11}) && s.keyStep == 0 && s.keyPitchClass == 0);
+    CHECK(s.degreeOfStep(0) == -1 && s.degreeOfStep(1) == 0 && s.degreeOfStep(23) == 7);
+    CHECK(s.degreeOfSemitone(60) == -1 && s.degreeOfSemitone(61) == 0 && s.degreeOfSemitone(71) == 7);
+    CHECK(s.stepOfDegree(0, 0) == 1 && s.stepOfDegree(8, 0) == 13 && s.stepOfDegree(-1, 0) == -1);
 
     // From steps: pitch classes, sorted, distinct.
     const std::int64_t played[] = {24, 19 + 3, 3, -13};
@@ -1621,6 +1644,19 @@ void testChordsShapes() {
     CHECK(chordKeys(c, 67) == std::vector<int>({67, 71, 74}));
     CHECK(chordKeys(c, 65) == std::vector<int>({65, 69, 72}));
     CHECK(chordKeys(c, 66).empty());
+    // Diminished (from the 2nd) in C: the key is off the scale; the rest stack from Db.
+    p       = ChordsParams{};
+    p.scale = scaleIndex("Diminished (from the 2nd)");
+    c.setParams(p);
+    CHECK(chordKeys(c, 61) == std::vector<int>({61, 64, 67}));
+    CHECK(chordKeys(c, 71) == std::vector<int>({71, 74, 77}));   // over the octave, past the key
+    CHECK(chordKeys(c, 60).empty());
+    p.offScale = OffScale::Nearest;
+    c.setParams(p);
+    CHECK(chordKeys(c, 60) == std::vector<int>({59, 62, 65}));   // the key goes down, to B
+    p.input = InputMatch::Edo;
+    c.setParams(p);
+    CHECK(chordKeys(c, 72) == std::vector<int>({71, 74, 77}));
 }
 
 void testChordsMicrotonal() {
