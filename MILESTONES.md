@@ -31,7 +31,7 @@
 - [x] Heard in StageHand: KeyboardEDO → Chords → a synth (2026-10-21)
 - [x] Heard: C lydian dominant in 19-EDO from a 12-EDO keyboard; KeyboardEDO in 19-EDO with Input EDO; Chords → Cloud (2026-11-07)
 - [x] The 29 familiar scales KeyboardEDO and EDOSpread12 share: the diminished scales (whole-half, half-whole, from the 2nd) and Blues after Whole tone, the menu in balanced columns (branch `more-scales`, 2026-11-04, merged 2026-11-14); builds, tests pass, clap-validator clean
-- [ ] By hand: the Scale menu's columns, Diminished (from the 2nd)'s empty ring at the key, and Blues heard in a non-12 EDO
+- [x] By hand: the Scale menu's columns, Diminished (from the 2nd)'s empty ring at the key, and Blues heard in a non-12 EDO (2026-11-14, on the Mac)
 
 ## M4: NoteGran Grid
 - [x] Meters and tiers after PolygraphModular's ClockGran; per-tier Probability, Level, Offset, Chaos, Pick
