@@ -15,8 +15,8 @@ synth after it makes the sound; NoteGran makes no audio.
 | Version | 0.9.0 (preview) |
 | License | MIT |
 
-**Downloads:** ready-built plugins will be in the
-[Unlikelyware downloads](https://github.com/erickampman/unlikelyware) with the 0.9 preview. This repo
+**Downloads:** ready-built plugins are in the
+[Unlikelyware downloads](https://github.com/erickampman/unlikelyware). This repo
 has the source only.
 
 ## The five effects
