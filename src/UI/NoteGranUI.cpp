@@ -89,14 +89,14 @@ const char* nameFor(int kind) {
     default: return "Cloud";
     }
 }
-// This plugin's own help page (tools/help_pages.py builds the five from resources/help.md).
-HelpButton::File helpPage(int kind) {
+// Where this effect's help opens: its own section of resources/help.md.
+const char* helpAnchor(int kind) {
     switch (kind) {
-    case NG_CHORDS: return {"NoteGran-Chords-help.html", EmbeddedResources::help_chordsData, EmbeddedResources::help_chordsDataSize};
-    case NG_GRID: return {"NoteGran-Grid-help.html", EmbeddedResources::help_gridData, EmbeddedResources::help_gridDataSize};
-    case NG_BURST: return {"NoteGran-Burst-help.html", EmbeddedResources::help_burstData, EmbeddedResources::help_burstDataSize};
-    case NG_BUFFER: return {"NoteGran-Buffer-help.html", EmbeddedResources::help_bufferData, EmbeddedResources::help_bufferDataSize};
-    default: return {"NoteGran-Cloud-help.html", EmbeddedResources::help_cloudData, EmbeddedResources::help_cloudDataSize};
+    case NG_CHORDS: return "#chords";
+    case NG_GRID: return "#grid";
+    case NG_BURST: return "#burst";
+    case NG_BUFFER: return "#buffer";
+    default: return "#cloud";
     }
 }
 const Color kWindow(26, 28, 33);
@@ -453,11 +453,12 @@ public:
             }
             fGroups.push_back(std::move(box));
         }
-        // The help pages show the logo as "Unlikelyware.png"; HelpButton puts it in the page.
-        fHelp = std::make_unique<HelpButton>(this, std::vector<HelpButton::File>{
-            helpPage(fKind),
-            {"Unlikelyware.png", EmbeddedResources::Unlikelyware_Final_ColorData,
-             EmbeddedResources::Unlikelyware_Final_ColorDataSize}});
+        // help.md shows the logo as "Unlikelyware.png"; the window opens at this effect's section.
+        fHelp = std::make_unique<HelpButton>(this, "NoteGran Help",
+            EmbeddedResources::helpData, EmbeddedResources::helpDataSize,
+            std::vector<DGL_NAMESPACE::uwhelp::Image>{{"Unlikelyware.png", EmbeddedResources::Unlikelyware_Final_ColorData,
+                                                       EmbeddedResources::Unlikelyware_Final_ColorDataSize}},
+            helpAnchor(fKind));
         fMenu = std::make_unique<PopupMenu>(this, this);   // last, so it draws on top
 
         refresh(true);
