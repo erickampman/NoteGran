@@ -339,7 +339,18 @@ Long wanted on its own (2026-10-21); it fits here because a chord is just a set.
   note past MIDI's range is left out. A scale channel's scale is latched (it stays when let go, until
   a new note there starts the next); with nothing there yet, every note passes. With a scale channel,
   Input is EDO (there are no familiar degrees). A chorded note's per-note messages are dropped; a
-  passed note's pass. 16 parameters; state header `NoteGran Chords 1`.
+  passed note's pass.
+- **A slide carries its chord (2026-11-23).** A 7.25 at a note-on's sample (CLAP's tuning) is read
+  with it, so the first chord is built where the note really is. A later 7.25 on a chorded note
+  (KeyboardEDO's Glide) is a slide: every chord note moves as far as the note did, keeping the
+  chord's shape, whatever key it reaches; on-scale or off, it isn't chorded again. Notes move where
+  they sound (Pitch 7.25 out for MIDI 2.0, the tuning expression for CLAP); MIDI 1.0's are struck
+  again; a note shared with another held note's chord stays with that chord, and this one gets
+  its own. Per-Note Management Reset slides back to the note-on's pitch. A passed note stays
+  passed; a dropped one stays silent. Per-note bend doesn't move chords yet.
+- **At one sample, notes' ends go out before passed events** (2026-11-23), then starts and moves.
+  KeyboardEDO without Glide slides as an off and an on; in an EDO the off-scale step it lands on
+  can be on the chord root's key, and the root's note-off after it cut it off. 16 parameters; state header `NoteGran Chords 1`.
 - **MIDI 1.0 can't carry a microtone.** A chord in an EDO other than 12 from a MIDI 1.0 note would be
   rounded back to 12-EDO keys. So Chords sends a chord note with a fraction as MIDI 2.0 (the host
   translates down for a synth that takes only MIDI 1.0), the one exception to "output in its note's

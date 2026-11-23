@@ -17,6 +17,12 @@
 // Each input note remembers its chord (latching, as Retune's), so a change to the scale or the
 // settings while it's held can't leave a chord note sounding. Overlapping chords share their
 // notes: one already sounding isn't struck again, and ends with the last chord using it.
+//
+// Pitch 7.25 (a CLAP tuning expression, KeyboardEDO's glides): one at the note-on's own sample is
+// read with the note-on, so the first chord is built where the note really is. A later one is a
+// slide: the chord goes with the note, every note shifted as far, whatever key it reaches; it's
+// never chorded again (MIDI 1.0's notes are struck again, as it can't move one). Per-Note
+// Management Reset slides it back to the note-on's pitch. A passed note's pass.
 namespace notegran {
 
 enum class InputMatch : std::uint8_t {
@@ -84,6 +90,10 @@ private:
         std::uint8_t  channel = 0;
         std::uint8_t  key     = 0;
         bool          passed  = false;   // played through as it came: its off passes too
+        Dialect       dialect = Dialect::Midi2;
+        std::uint16_t velocity = 0;
+        std::int32_t  base    = 0;       // the note-on's pitch (1/512 semitone)
+        std::int32_t  pitch   = 0;       // where it is now: after Pitch 7.25
         std::uint8_t  count   = 0;
         std::array<std::uint16_t, kMaxSize> notes{};   // indices into shared_
     };
@@ -102,6 +112,9 @@ private:
     Held*  find(std::uint8_t group, std::uint8_t channel, std::uint8_t key) noexcept;
     Held*  freeHeld() noexcept;
     void   release(Held& h, std::int64_t time, NoteOut& out) noexcept;
+    void   shift(Held& h, std::int32_t delta, std::int64_t time, NoteOut& out) noexcept;
+    void   unref(std::uint16_t k, std::int64_t time, NoteOut& out) noexcept;
+    void   move(Held& h, std::int32_t pitch, std::int64_t time, NoteOut& out) noexcept;
     void   strike(Held& h, std::int64_t time, Dialect dialect, std::uint16_t velocity,
                   const std::array<std::int32_t, kMaxSize>& pitches, std::size_t n, NoteOut& out) noexcept;
 

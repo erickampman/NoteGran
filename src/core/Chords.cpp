@@ -14,6 +14,17 @@ namespace {
 
 constexpr std::uint8_t kAllSoundOff = 120;
 constexpr std::uint8_t kAllNotesOff = 123;
+constexpr std::uint8_t kPitch7_25    = 3;      // registered per-note controller
+constexpr std::uint8_t kPerNoteReset = 0x01;   // Per-Note Management "S"
+
+// Pitch 7.25 to 7.9: drop 16 bits of fraction, rounding (as NoteSet).
+std::int32_t pitch79From725(std::uint32_t data) noexcept {
+    return static_cast<std::int32_t>(std::min<std::int64_t>((std::int64_t{data} + 0x8000) >> 16, 0xFFFF));
+}
+
+bool isPitch725(const uw::MidiMessage& m) noexcept {
+    return ump::status(m) == ump::Status::RegisteredPerNoteController && (m.words[0] & 0xFF) == kPitch7_25;
+}
 
 std::int64_t mod(std::int64_t a, std::int64_t n) noexcept { return ((a % n) + n) % n; }
 
@@ -132,14 +143,17 @@ ChordsCore::Held* ChordsCore::freeHeld() noexcept {
     return nullptr;
 }
 
-void ChordsCore::release(Held& h, std::int64_t time, NoteOut& out) noexcept {
-    for (std::uint8_t i = 0; i < h.count; ++i) {
-        Shared& s = shared_[h.notes[i]];
-        if (--s.refs == 0) {
-            owned_.end(s.id, time, out);
-            s = Shared{};
-        }
+// One held note lets go of chord note `k`: it ends with the last one using it.
+void ChordsCore::unref(std::uint16_t k, std::int64_t time, NoteOut& out) noexcept {
+    Shared& s = shared_[k];
+    if (--s.refs == 0) {
+        owned_.end(s.id, time, out);
+        s = Shared{};
     }
+}
+
+void ChordsCore::release(Held& h, std::int64_t time, NoteOut& out) noexcept {
+    for (std::uint8_t i = 0; i < h.count; ++i) unref(h.notes[i], time, out);
     h = Held{};
 }
 
@@ -178,6 +192,47 @@ void ChordsCore::strike(Held& h, std::int64_t time, Dialect dialect, std::uint16
         ++shared_[k].refs;
         h.notes[h.count++] = static_cast<std::uint16_t>(k);
     }
+}
+
+// The held note `h` slid to `pitch`: its chord goes with it, shifted as far, whatever key it
+// reaches (a slide carries the chord it started with; it's never chorded again).
+void ChordsCore::move(Held& h, std::int32_t pitch, std::int64_t time, NoteOut& out) noexcept {
+    const std::int32_t from = h.pitch;
+    h.pitch                 = pitch;
+    if (!h.passed) shift(h, pitch - from, time, out);   // a passed note's own 7.25 passes and moves it
+}
+
+// Each of `h`'s chord notes moved by `delta`. One only it uses moves where it sounds; one shared
+// with another chord is left to that one, and a new note struck for this; MIDI 1.0 can't move a
+// note, so it's struck again (and goes out as MIDI 2.0 if it now has a fraction).
+void ChordsCore::shift(Held& h, std::int32_t delta, std::int64_t time, NoteOut& out) noexcept {
+    if (delta == 0) return;
+    Held next  = h;
+    next.count = 0;
+    for (std::uint8_t i = 0; i < h.count; ++i) {
+        const std::uint16_t k = h.notes[i];
+        Shared&             s = shared_[k];
+        const std::int32_t  p = s.pitch + delta;
+        if (p < 0 || p > kMaxPitch) {   // past MIDI's range: left out
+            unref(k, time, out);
+            continue;
+        }
+        if (s.refs == 1 && owned_.move(s.id, time, static_cast<std::uint16_t>(p), out)) {
+            s.pitch                   = p;
+            next.notes[next.count++] = k;
+            continue;
+        }
+        const std::array<std::int32_t, kMaxSize> one{p};
+        if (s.refs == 1) {   // MIDI 1.0: its key is free first, for the same-key rule
+            const Dialect d = s.dialect;
+            unref(k, time, out);
+            strike(next, time, d, h.velocity, one, 1, out);
+        } else {
+            strike(next, time, s.dialect, h.velocity, one, 1, out);
+            unref(k, time, out);
+        }
+    }
+    h = next;
 }
 
 void ChordsCore::process(InputEvent* inputs, std::size_t inputCount, NoteOut& out) noexcept {
@@ -219,9 +274,28 @@ void ChordsCore::process(InputEvent* inputs, std::size_t inputCount, NoteOut& ou
                 h = freeHeld();
                 if (h == nullptr) continue;   // too many held: passes through
             }
-            *h = Held{true, group, channel, index, false, 0, {}};
+            // A Pitch 7.25 for this note at the same sample (CLAP's tuning, sent after its
+            // note-on) is where it really is: read it now, so its first chord is the right one.
+            std::int32_t pitch = ump::notePitch79(m);
+            for (std::size_t j = i + 1; j < inputCount && inputs[j].time == in.time; ++j) {
+                const uw::MidiMessage& n = inputs[j].message;
+                if (!ump::isChannelVoice(n) || ump::group(n) != group || ump::channel(n) != channel ||
+                    ((n.words[0] >> 8) & 0x7F) != index)
+                    continue;
+                if (ump::isNoteOn(n) || ump::isNoteOff(n)) break;
+                if (isPitch725(n)) pitch = pitch79From725(n.words[1]);
+            }
+            *h          = Held{};
+            h->used     = true;
+            h->group    = group;
+            h->channel  = channel;
+            h->key      = index;
+            h->dialect  = in.dialect;
+            h->velocity = ump::velocity16(m);
+            h->base     = ump::notePitch79(m);
+            h->pitch    = pitch;
             std::array<std::int32_t, kMaxSize> pitches{};
-            const std::size_t                  n = chordFor(ump::notePitch79(m), pitches);
+            const std::size_t                  n = chordFor(pitch, pitches);
             if (n == 0) {
                 // Off the scale: Pass plays it as it came; Drop doesn't (Nearest found a degree).
                 h->passed = params_.offScale == OffScale::Pass;
@@ -229,7 +303,7 @@ void ChordsCore::process(InputEvent* inputs, std::size_t inputCount, NoteOut& ou
                 continue;
             }
             in.pass = false;
-            strike(*h, in.time, in.dialect, ump::velocity16(m), pitches, n, out);
+            strike(*h, in.time, h->dialect, h->velocity, pitches, n, out);
             continue;
         }
         if (off) {
@@ -243,7 +317,11 @@ void ChordsCore::process(InputEvent* inputs, std::size_t inputCount, NoteOut& ou
                              status == ump::Status::RegisteredPerNoteController ||
                              status == ump::Status::AssignablePerNoteController ||
                              status == ump::Status::PerNoteManagement;
-        if (perNote && h != nullptr) in.pass = h->passed;
+        if (!perNote || h == nullptr) continue;
+        in.pass = h->passed;
+        if (isPitch725(m)) move(*h, pitch79From725(m.words[1]), in.time, out);
+        else if (status == ump::Status::PerNoteManagement && (m.words[0] & kPerNoteReset) != 0)
+            move(*h, h->base, in.time, out);
     }
 }
 

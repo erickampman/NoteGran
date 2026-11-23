@@ -25,7 +25,10 @@ struct NoteEvent {
     std::uint8_t  key      = 0;      // 0..127: the note number it's addressed by
     Dialect       dialect  = Dialect::Midi2;
     std::uint16_t pitch79  = 0;      // note-on: the pitch in 1/512 semitone; note-off: key << 9
-    std::uint16_t velocity = 0;      // note-on: 16-bit; note-off: 0
+    std::uint16_t velocity = 0;      // note-on: 16-bit; note-off and move: 0
+    bool          move     = false;  // with on false: not an end but a pitch change on the note
+                                     // sounding on `key`, to `pitch79` (MIDI 2.0: Pitch 7.25;
+                                     // CLAP: the tuning expression; never MIDI 1.0)
 };
 
 // One input message, in time order, and whether it goes out unchanged (set by the core).

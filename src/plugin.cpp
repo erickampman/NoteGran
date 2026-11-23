@@ -678,6 +678,11 @@ void publishLive(Plugin* p, const NoteOut& notes) {
         while (k < p->soundingCount && (p->sounding[k].group != e.group || p->sounding[k].channel != e.channel ||
                                         p->sounding[k].key != e.key))
             ++k;
+        if (e.move) {   // the note sounds on, at its new pitch
+            if (k < p->soundingCount)
+                p->sounding[k].packed = std::uint32_t{e.pitch79} << 16 | (p->sounding[k].packed & 0xFFFF);
+            continue;
+        }
         if (!e.on) {
             if (k < p->soundingCount) p->sounding[k] = p->sounding[--p->soundingCount];
             continue;
@@ -871,7 +876,30 @@ bool push(const clap_output_events_t* out, const clap_event_header_t* h) {
     return out != nullptr && out->try_push != nullptr && out->try_push(out, h);
 }
 
+// A pitch change on a sounding note: Pitch 7.25, or CLAP's tuning expression (from its key).
+void pushMove(const NoteEvent& e, std::uint32_t time, const clap_output_events_t* out) {
+    if (e.dialect == Dialect::Midi2) {
+        clap_event_midi2_t ev{};
+        ev.header     = {sizeof(ev), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI2, 0};
+        ev.port_index = 0;
+        const uw::MidiMessage m = midi2(0x0, e.channel, e.key, 3, std::uint32_t{e.pitch79} << 16, e.group);
+        std::memcpy(ev.data, m.words, sizeof(ev.data));
+        push(out, &ev.header);
+    } else if (e.dialect == Dialect::Clap) {
+        clap_event_note_expression_t x{};
+        x.header        = {sizeof(x), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_EXPRESSION, 0};
+        x.expression_id = CLAP_NOTE_EXPRESSION_TUNING;
+        x.note_id       = -1;
+        x.port_index    = 0;
+        x.channel       = e.channel;
+        x.key           = e.key;
+        x.value         = (e.pitch79 - (e.key << 9)) / 512.0;
+        push(out, &x.header);
+    }
+}
+
 void pushNote(const NoteEvent& e, std::uint32_t time, const clap_output_events_t* out) {
+    if (e.move) return pushMove(e, time, out);
     switch (e.dialect) {
     case Dialect::Midi1: {
         clap_event_midi_t ev{};
@@ -1020,10 +1048,15 @@ clap_process_status plug_process(const clap_plugin_t* plugin, const clap_process
     runUntil(blockStart + frames);
     p->now = blockStart + frames;
 
-    // Merge the passed-through events and the notes by time; at the same sample, passed first.
+    // Merge the passed-through events and the notes by time. At the same sample, the notes' ends
+    // first, then the passed events, then the notes' starts and moves: a note passed on a key a
+    // chord note is leaving (a slide off the scale, in an EDO) isn't ended by that note's off.
     std::size_t a = 0, b = 0;
     while (a < passed || b < notes.size()) {
-        const bool takePassed = b == notes.size() || (a < passed && p->passed[a].time <= notes[b].time);
+        const auto endsFirst  = [&] { return !notes[b].on && !notes[b].move; };
+        const bool takePassed = b == notes.size() ||
+                                (a < passed && (p->passed[a].time < notes[b].time ||
+                                                (p->passed[a].time == notes[b].time && !endsFirst())));
         const std::int64_t t  = takePassed ? p->passed[a].time : notes[b].time;
         const auto offset     = static_cast<std::uint32_t>(std::clamp<std::int64_t>(t - blockStart, 0, frames > 0 ? frames - 1 : 0));
         if (takePassed) {

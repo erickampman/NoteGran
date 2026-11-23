@@ -697,6 +697,44 @@ void testChords() {
     Source               source{sink.text};
     const clap_istream_t is = {&source, Source::read};
     CHECK(!cloud.state->load(cloud.plugin, &is));   // a Chords state isn't a Cloud's
+
+    // A slide (Pitch 7.25) moves the chord: each note gets its own 7.25, a semitone up.
+    Instance k(kChordsId);
+    Input    on;
+    on.midi2(0, 0x40900000u | 60u << 8, 0x8000u << 16);
+    CHECK(k.process(on, 512).size() == 3);
+    Input slide;
+    slide.midi2(0, 0x40000000u | 60u << 8 | 3u, 61u << 25);
+    out = k.process(slide, 512);
+    CHECK(out.size() == 3);
+    const uint32_t movedKeys[] = {60, 64, 67};
+    for (size_t i = 0; i < out.size() && i < 3; ++i)
+        CHECK(out[i].type == CLAP_EVENT_MIDI2 && out[i].words[0] == (0x40000003u | movedKeys[i] << 8) &&
+              out[i].words[1] == (movedKeys[i] + 1) << 25);
+    // At one sample, the chord's ends go out before a passed note: KeyboardEDO's slide without
+    // Glide, onto an off-scale step on the root's key (C#'s pitch on key 60), isn't cut off.
+    Input step;
+    step.midi2(0, 0x40800000u | 60u << 8);
+    step.midi2(0, 0x40900003u | 60u << 8, 0x8000u << 16 | 61u << 9);
+    out = k.process(step, 512);
+    CHECK(out.size() == 4);
+    if (out.size() == 4) {
+        for (int i = 0; i < 3; ++i) CHECK(out[i].type == CLAP_EVENT_MIDI2 && (out[i].words[0] >> 20) == 0x408);
+        CHECK(isMidi2NoteOn(out[3]) && ((out[3].words[0] >> 8) & 0x7F) == 60);
+    }
+
+    // CLAP notes: the move is the tuning expression, from each note's key.
+    Instance n(kChordsId);
+    Input    cn;
+    cn.note(CLAP_EVENT_NOTE_ON, 0, 0, 60);
+    CHECK(n.process(cn, 512).size() == 3);
+    Input ct;
+    ct.tuning(0, 0, 60, 0.5);
+    out = n.process(ct, 512);
+    CHECK(out.size() == 3);
+    for (size_t i = 0; i < out.size() && i < 3; ++i)
+        CHECK(out[i].type == CLAP_EVENT_NOTE_EXPRESSION && out[i].key == int(movedKeys[i]) &&
+              std::fabs(out[i].value - 0.5) < 1e-9);
 }
 
 void testGrid() {

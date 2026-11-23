@@ -81,6 +81,10 @@ public:
     // next call, late but not stuck. Returns true if none is left due.
     bool endUntil(std::int64_t time, NoteOut& out) noexcept;
 
+    // Moves a sounding note's pitch at `time` (a NoteEvent with `move`). MIDI 1.0 can't: false,
+    // as when it isn't sounding or `out` is full.
+    bool move(NoteId id, std::int64_t time, std::uint16_t pitch79, NoteOut& out) noexcept;
+
     // Ends every note at `time`, oldest first: reset, All Notes Off, deactivation, a transport
     // stop. Returns true if the table is empty after; false if `out` filled first.
     bool endAll(std::int64_t time, NoteOut& out) noexcept;

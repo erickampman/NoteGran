@@ -70,6 +70,15 @@ bool OwnedNotes::end(NoteId id, std::int64_t time, NoteOut& out) noexcept {
     return true;
 }
 
+bool OwnedNotes::move(NoteId id, std::int64_t time, std::uint16_t pitch79, NoteOut& out) noexcept {
+    const std::size_t i = findId(id);
+    if (i == kNone || out.room() == 0 || slots_[i].dialect == Dialect::Midi1) return false;
+    const Slot& s = slots_[i];
+    NoteEvent   e{time, false, s.group, s.channel, s.key, s.dialect, pitch79, 0};
+    e.move = true;
+    return out.push(e);
+}
+
 bool OwnedNotes::endUntil(std::int64_t time, NoteOut& out) noexcept {
     for (;;) {
         std::size_t due = kNone;

@@ -65,7 +65,11 @@ bool isOn(const NoteEvent& e, std::int64_t time, std::uint8_t key, std::uint8_t 
 }
 
 bool isOff(const NoteEvent& e, std::int64_t time, std::uint8_t key, std::uint8_t channel = 0) {
-    return !e.on && e.time == time && e.key == key && e.channel == channel && e.velocity == 0;
+    return !e.on && !e.move && e.time == time && e.key == key && e.channel == channel && e.velocity == 0;
+}
+
+bool isMove(const NoteEvent& e, std::int64_t time, std::uint8_t key, std::int32_t pitch79) {
+    return e.move && !e.on && e.time == time && e.key == key && e.pitch79 == pitch79;
 }
 
 // --- the owned-note table -----------------------------------------------------------------
@@ -1779,6 +1783,84 @@ void testChordsScaleChannel() {
     CHECK(chordsRun(e, in).empty() && in[0].pass);
 }
 
+// Pitch 7.25 (registered per-note controller 3) at `semitones` on channel 0's `key`.
+uw::MidiMessage pitch725(std::uint8_t key, double semitones) {
+    return m2(0x0, 0, key, 3, static_cast<std::uint32_t>(semitones * 33554432.0));
+}
+
+void testChordsPitch725() {
+    ChordsCore   c;
+    ChordsParams p;   // C major, 12-EDO, triads
+    p.voices = 32;
+    c.setParams(p);
+
+    // A 7.25 at the note-on's sample (CLAP's tuning) places it: C retuned to D gives D F A, and
+    // no C chord is struck first. The 7.25 is dropped, as the chorded note's.
+    std::vector<InputEvent> in = {input(0, on2(60, 0x8000), Dialect::Clap), input(0, pitch725(60, 62.0), Dialect::Clap)};
+    auto out = chordsRun(c, in);
+    CHECK(out.size() == 3 && isOn(out[0], 0, 62) && isOn(out[1], 0, 65) && isOn(out[2], 0, 69));
+    CHECK(out.size() == 3 && out[0].dialect == Dialect::Clap);
+    CHECK(!in[0].pass && !in[1].pass);
+    in = {input(10, off2(60))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && !c.busy());
+
+    // Held C (C E G), then a slide: the chord goes with it, its shape kept, through C# (off the
+    // scale) and on to D (on it, but not chorded again). Each note moves where it sounds.
+    in  = {input(100, on2(60, 0x8000)), input(200, pitch725(60, 61.0))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 6 && isMove(out[3], 200, 60, 61 << 9) && isMove(out[4], 200, 64, 65 << 9) &&
+          isMove(out[5], 200, 67, 68 << 9));
+    CHECK(!in[1].pass);
+    in  = {input(210, pitch725(60, 62.5))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && isMove(out[0], 210, 60, 62 * 512 + 256) && isMove(out[2], 210, 67, 69 * 512 + 256));
+    in  = {input(220, pitch725(60, 62.5))};   // no move: nothing
+    CHECK(chordsRun(c, in).empty());
+    // Per-Note Management Reset: back at the note-on's pitch, so the chord too.
+    in  = {input(300, m2(0xF, 0, 60, 0x01, 0))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && isMove(out[0], 300, 60, 60 << 9) && isMove(out[1], 300, 64, 64 << 9));
+    in  = {input(400, off2(60))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && isOff(out[0], 400, 60) && !c.busy());
+
+    // Two chords sharing E and G (C E G, E G B): C slides; its own C moves, and the shared two
+    // stay with E's chord while C's get new notes a semitone up.
+    in  = {input(1000, on2(60, 0x8000)), input(1000, on2(64, 0x8000)), input(1100, pitch725(60, 61.0))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 7 && isMove(out[4], 1100, 60, 61 << 9) && isOn(out[5], 1100, 65) && isOn(out[6], 1100, 68));
+    in  = {input(1200, off2(60))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && isOff(out[0], 1200, 60) && isOff(out[1], 1200, 65) && isOff(out[2], 1200, 68));
+    in  = {input(1300, off2(64))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && !c.busy());
+
+    // MIDI 1.0 can't move a note: each is struck again, its key freed first; half a semitone up
+    // has a fraction, so the new notes are MIDI 2.0.
+    in  = {input(1400, on1(60)), input(1500, pitch725(60, 60.5))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 9 && isOff(out[3], 1500, 60) && out[4].on && out[4].pitch79 == 60 * 512 + 256 &&
+          out[4].dialect == Dialect::Midi2);
+    in  = {input(1600, off1(60))};
+    out = chordsRun(c, in);
+    CHECK(out.size() == 3 && !c.busy());
+
+    // A passed note (off the scale, Pass) keeps passing its 7.25, and makes no chord.
+    in  = {input(500, on2(61, 0x8000)), input(510, pitch725(61, 62.0)), input(520, off2(61))};
+    out = chordsRun(c, in);
+    CHECK(out.empty() && in[0].pass && in[1].pass && in[2].pass);
+
+    // Drop: off the scale at note-on, so nothing, and a slide onto the scale doesn't chord it.
+    p.offScale = OffScale::Drop;
+    c.setParams(p);
+    in  = {input(600, on2(61, 0x8000)), input(610, pitch725(61, 62.0)), input(620, off2(61))};
+    out = chordsRun(c, in);
+    CHECK(out.empty() && !in[0].pass && !in[1].pass && !in[2].pass);
+    CHECK(!c.busy());
+}
+
 
 // --- Grid ---------------------------------------------------------------------------------
 
@@ -2581,6 +2663,7 @@ int main() {
     testChordsMicrotonal();
     testChordsPlaying();
     testChordsScaleChannel();
+    testChordsPitch725();
     testEdoFacts();
     testGridTiers();
     testGridPlaying();
