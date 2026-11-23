@@ -5,6 +5,19 @@ All notable changes to NoteGran. Versions follow the git tags; the format is
 
 ## [Unreleased]
 
+### Added
+
+- Chords follows a slide: a held note's Pitch 7.25 (KeyboardEDO's Glide, a CLAP tuning
+  expression) moves its whole chord with it, keeping the chord's shape, whether the slide
+  lands on the scale or off it. A tuning sent with the note-on picks the chord where the note
+  really is.
+
+### Fixed
+
+- Chords: sliding from a chorded note onto an off-scale step (KeyboardEDO without Glide, in an
+  EDO) no longer goes silent. At one sample, a note's end now goes out before a note passed
+  through on the same key.
+
 ### Changed
 
 - Help opens the help page in a window of the plugin's own at the effect's section, not in the web browser. Nothing is
