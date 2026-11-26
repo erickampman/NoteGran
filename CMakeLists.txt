@@ -73,31 +73,48 @@ add_custom_command(
 # --- the .clap ---------------------------------------------------------------------------------
 # Hidden visibility, so clap_entry (CLAP_EXPORT in plugin.cpp) is the only exported symbol and two
 # plugins with different uw-core pins can't bind to each other's copies.
-add_library(NoteGran MODULE src/plugin.cpp src/UI/NoteGranUI.cpp "${NOTEGRAN_RESOURCES_CPP}"
-    "${DPF_ROOT_DIR}/distrho/src/DistrhoUI.cpp" "${DPF_ROOT_DIR}/distrho/src/DistrhoUtils.cpp")
-target_include_directories(NoteGran PRIVATE external/clap/include src src/UI "${CMAKE_BINARY_DIR}/generated"
-    "${DPF_ROOT_DIR}/distrho")
-target_link_libraries(NoteGran PRIVATE notegran_core dgl-opengl)
-target_compile_definitions(NoteGran PRIVATE NOTEGRAN_VERSION_STRING="${PROJECT_VERSION}"
-    DISTRHO_PLUGIN_TARGET_CLAP DISTRHO_IS_STANDALONE=0)
-dpf__add_plugin_specific_ui_sources(NoteGran FALSE)   # macOS: DistrhoUI_macOS.mm
-if(APPLE)
-    target_sources(NoteGran PRIVATE src/UI/BackingScale_mac.mm)   # the window's live Retina scale
-endif()
-# DPF's own sources reach pugl.hpp through private headers; mute only gcc's <cstdbool> #warning.
-set_source_files_properties(src/UI/NoteGranUI.cpp "${DPF_ROOT_DIR}/distrho/src/DistrhoUI.cpp"
-    PROPERTIES COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>")
-set_target_properties(NoteGran PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
-# DGL's libraries keep default visibility, so the linker is told too: clap_entry is the only export
-# (another plugin's DPF or uw-core in the same host can't bind to ours).
+function(notegran_add_plugin_sources TARGET_NAME)
+    target_sources(${TARGET_NAME} PRIVATE src/plugin.cpp src/UI/NoteGranUI.cpp "${NOTEGRAN_RESOURCES_CPP}"
+        "${DPF_ROOT_DIR}/distrho/src/DistrhoUI.cpp" "${DPF_ROOT_DIR}/distrho/src/DistrhoUtils.cpp")
+    target_include_directories(${TARGET_NAME} PRIVATE external/clap/include src src/UI
+        "${CMAKE_BINARY_DIR}/generated" "${DPF_ROOT_DIR}/distrho")
+    if(APPLE)   # clapwrapper/auv2.h: the AUv2 factory info in src/plugin.cpp
+        target_include_directories(${TARGET_NAME} PRIVATE external/clap-wrapper/include)
+    endif()
+    target_link_libraries(${TARGET_NAME} PRIVATE notegran_core dgl-opengl)
+    target_compile_definitions(${TARGET_NAME} PRIVATE NOTEGRAN_VERSION_STRING="${PROJECT_VERSION}"
+        DISTRHO_PLUGIN_TARGET_CLAP DISTRHO_IS_STANDALONE=0)
+    dpf__add_plugin_specific_ui_sources(${TARGET_NAME} FALSE)   # macOS: DistrhoUI_macOS.mm
+    if(APPLE)
+        target_sources(${TARGET_NAME} PRIVATE src/UI/BackingScale_mac.mm)   # the window's live Retina scale
+    endif()
+    set_target_properties(${TARGET_NAME} PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+        # -Wall -Wextra per source rather than per target: clap-wrapper builds its own sources with
+        # -Wpedantic -Werror, and DGL's headers aren't pedantic, so the editor's sources and DPF's
+        # turn pedantic off again (as in EDOSpread12 and Retune). DPF's own sources reach pugl.hpp
+        # through private headers; mute only gcc's <cstdbool> #warning.
+        set_source_files_properties(src/plugin.cpp TARGET_DIRECTORY ${TARGET_NAME}
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+        set_source_files_properties(src/UI/NoteGranUI.cpp TARGET_DIRECTORY ${TARGET_NAME}
+            PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wno-pedantic;$<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>")
+        set_source_files_properties("${DPF_ROOT_DIR}/distrho/src/DistrhoUI.cpp"
+            "${DPF_ROOT_DIR}/distrho/src/DistrhoUtils.cpp" "${DPF_ROOT_DIR}/distrho/DistrhoUI_macOS.mm"
+            src/UI/BackingScale_mac.mm TARGET_DIRECTORY ${TARGET_NAME}
+            PROPERTIES COMPILE_OPTIONS "-Wno-pedantic;$<$<CXX_COMPILER_ID:GNU>:-Wno-cpp>")
+    endif()
+endfunction()
+
+add_library(NoteGran MODULE)
+notegran_add_plugin_sources(NoteGran)
+# DGL's libraries keep default visibility, so the linker is told too: clap_entry is the .clap's only
+# export (another plugin's DPF or uw-core in the same host can't bind to ours). Not for the AUv2,
+# whose wrapper exports its own entry point.
 if(APPLE)
     target_link_options(NoteGran PRIVATE "LINKER:-exported_symbol,_clap_entry")
 elseif(UNIX)
     file(WRITE "${CMAKE_BINARY_DIR}/generated/exports.map" "{ global: clap_entry; local: *; };\n")
     target_link_options(NoteGran PRIVATE "LINKER:--version-script=${CMAKE_BINARY_DIR}/generated/exports.map")
-endif()
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    target_compile_options(NoteGran PRIVATE -Wall -Wextra)
 endif()
 
 if(APPLE)
@@ -125,6 +142,50 @@ add_custom_target(install-clap
     DEPENDS NoteGran
     VERBATIM
     COMMENT "Symlinking NoteGran.clap into ${NOTEGRAN_CLAP_DIR}")
+
+# --- AUv2 via clap-wrapper (macOS) -------------------------------------------------------------
+# The same plugin, wrapped as a MIDI effect ("aumi", Logic's MIDI FX slot). clap-wrapper is
+# erickampman/clap-wrapper's unlikelyware branch (as in EDOSpread12 and Retune): v0.16.0 plus an AUv2
+# that keeps a MIDI 2.0 plugin's output whole, so Pitch 7.9 reaches the next plugin in Logic.
+option(NOTEGRAN_BUILD_AUV2 "Build NoteGran.component (AUv2 MIDI effect) via clap-wrapper (macOS)" ${APPLE})
+if(NOTEGRAN_BUILD_AUV2 AND NOT APPLE)
+    message(FATAL_ERROR "NOTEGRAN_BUILD_AUV2 is macOS-only. Reconfigure with -DNOTEGRAN_BUILD_AUV2=OFF.")
+endif()
+if(NOTEGRAN_BUILD_AUV2)
+    enable_language(OBJC)   # the wrapper's Objective-C sources
+    set(CLAP_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/clap" CACHE PATH "" FORCE)
+    # clap-wrapper fetches Apple's AudioUnitSDK itself unless AUDIOUNIT_SDK_ROOT names a copy.
+    if(NOT AUDIOUNIT_SDK_ROOT)
+        set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES ON)
+    endif()
+    add_subdirectory(external/clap-wrapper EXCLUDE_FROM_ALL)
+
+    add_library(NoteGran_auv2 MODULE)
+    notegran_add_plugin_sources(NoteGran_auv2)
+    # One component with five Audio Units, one per plugin in the .clap: clap-wrapper's build helper
+    # loads the built NoteGran.clap and reads each one's type ("aumi") and subtype (NGCl, NGCh, NGGr,
+    # NGBs, NGBf) from its AUv2 factory info (src/plugin.cpp, kAuv2Subtypes), under Unlikelyware's
+    # "nLKL". The helper takes the component's name from the .clap target's LIBRARY_OUTPUT_NAME.
+    set_target_properties(NoteGran PROPERTIES LIBRARY_OUTPUT_NAME "NoteGran")
+    target_add_auv2_wrapper(
+        TARGET NoteGran_auv2
+        CLAP_TARGET_FOR_CONFIG NoteGran
+        BUNDLE_IDENTIFIER "com.unlikelyware.notegran.auv2"
+        BUNDLE_VERSION "${PROJECT_VERSION}"
+        MANUFACTURER_NAME "Unlikelyware"
+        MANUFACTURER_CODE "nLKL")
+
+    # Copied, not symlinked, as in EDOSpread12, Retune and the synths.
+    set(NOTEGRAN_AUV2_DIR "$ENV{HOME}/Library/Audio/Plug-Ins/Components")
+    add_custom_target(install-auv2
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${NOTEGRAN_AUV2_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${NOTEGRAN_AUV2_DIR}/NoteGran.component"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "$<TARGET_BUNDLE_DIR:NoteGran_auv2>" "${NOTEGRAN_AUV2_DIR}/NoteGran.component"
+        DEPENDS NoteGran_auv2
+        VERBATIM
+        COMMENT "Copying NoteGran.component into ${NOTEGRAN_AUV2_DIR}")
+endif()
 
 # --- tests -------------------------------------------------------------------------------------
 include(CTest)

@@ -3,7 +3,8 @@
 NoteGran builds the same way on Linux and macOS: CMake + Ninja, git submodules, C++20. The build
 makes the core library `notegran_core`, the plugin `NoteGran.clap` (NoteGran Cloud, Chords, Grid,
 Burst and Buffer, with their editors), and two test programs: `notegran-core-tests` (the core) and
-`notegran-clap-tests` (a headless host that loads the built `.clap`).
+`notegran-clap-tests` (a headless host that loads the built `.clap`). On macOS it also makes
+`NoteGran.component`, the same five effects as AUv2 MIDI effects.
 
 ## What you need
 
@@ -58,7 +59,8 @@ ctest --test-dir build --output-on-failure
 
 The same three commands on both platforms. Everything goes in `build/` (ignored by git).
 
-The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS.
+The plugin is `build/NoteGran.clap`: a shared object on Linux, a bundle directory on macOS. On
+macOS the AUv2 is `build/NoteGran.component`.
 
 ## Installing the plugin for hosts
 
@@ -67,15 +69,19 @@ hosts look for it:
 
 ```bash
 cmake --build build --target install-clap
+cmake --build build --target install-auv2     # macOS
 ```
 
 | | Linux | macOS |
 |---|---|---|
 | CLAP | `~/.clap` | `~/Library/Audio/Plug-Ins/CLAP` |
+| AUv2 | — | `~/Library/Audio/Plug-Ins/Components` |
 
 `install-clap` symlinks the plugin in `build/`, so a host picks up a rebuild after a rescan. The
 link points into this clone: delete the clone and the host loses the plugin, and running the
-target in another build folder points the host there instead.
+target in another build folder points the host there instead. `install-auv2` copies the component
+(AU hosts don't reliably follow symlinks), so run it again after a rebuild. In Logic, NoteGran is
+under MIDI FX, in front of an instrument.
 
 To keep the plugin without the clone, copy it instead (the `rm` clears a link the targets left):
 
@@ -103,12 +109,19 @@ Pass these to the first command (`cmake -B build ... -DNAME=VALUE`).
 
 | Option | Default | Effect |
 |---|---|---|
+| `NOTEGRAN_BUILD_AUV2` | `ON` on macOS, `OFF` elsewhere | Build `NoteGran.component` through clap-wrapper: the five effects, each an AUv2 MIDI effect (`aumi`, under `nLKL`): Cloud `NGCl`, Chords `NGCh`, Grid `NGGr`, Burst `NGBs`, Buffer `NGBf`. **macOS only**: turning it on elsewhere stops the configure. The first configure downloads Apple's AudioUnitSDK; `-DAUDIOUNIT_SDK_ROOT=...` uses a local copy. |
 | `NOTEGRAN_UW_CORE_DIR` | `external/uw-core` | Build against another uw-core clone (below). |
+
+clap-wrapper is Unlikelyware's fork (github.com/erickampman/clap-wrapper, `unlikelyware` branch, from
+v0.16.0), whose AUv2 asks the host for MIDI 2.0 and passes MIDI 2.0 output whole: NoteGran prefers
+MIDI 2.0, so in a host that takes it (Logic) its microtonal notes (Pitch 7.9) reach the next plugin
+unrounded.
 
 ## Checking a build
 
 ```bash
 clap-validator validate build/NoteGran.clap   # 159 passed, 0 failed, 0 warnings, 33 skipped
+for s in NGCl NGCh NGGr NGBs NGBf; do auval -v aumi $s nLKL | tail -2; done   # AU VALIDATION SUCCEEDED x5 (macOS)
 ```
 
 The skipped tests are for audio ports, presets and 64-bit audio, which a note effect doesn't have.
@@ -159,7 +172,7 @@ commands under "Build and test", and for a plugin `cmake --build build --target 
 same package list, the same `build/` folder, the same option names (`<PROJECT>_BUILD_VST3`,
 `<PROJECT>_UW_CORE_DIR` and so on). What's different here, and why:
 
-- CLAP only: no VST® 3 or AUv2 yet (its milestone M9, as Retune's), so no `install-vst3` or `install-auv2`, and no clap-wrapper or VST3 SDK submodules.
+- CLAP, and on the Mac an AUv2 MIDI effect (`install-auv2`), but no VST® 3 yet (its milestone M9), so no `install-vst3` and no VST3 SDK submodule. The clap-wrapper submodule is Unlikelyware's fork (`unlikelyware`), whose AUv2 keeps MIDI 2.0 output whole.
 - Five plugins in one `.clap` (Cloud, Chords, Grid, Burst, Buffer), so a host lists five entries from one file.
 - No `_WERROR` option: the seven synths have one and their CI turns it on; this project's build still has a few warnings in its own sources, so it comes once they're fixed.
 - CI (`.github/workflows/ci.yml`) runs on `ubuntu-24.04`, the oldest Ubuntu supported, not `ubuntu-latest`, and on `macos-26`.

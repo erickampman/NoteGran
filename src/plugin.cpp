@@ -19,6 +19,9 @@
 //   what's playing goes back through a seqlocked snapshot written at the end of each process().
 
 #include <clap/clap.h>
+#if defined(__APPLE__)
+#include <clapwrapper/auv2.h>   // clap-wrapper's AUv2 factory info (macOS only)
+#endif
 
 #include <algorithm>
 #include <array>
@@ -1439,11 +1442,33 @@ const clap_plugin_descriptor_t* factory_get(const clap_plugin_factory_t*, std::u
 
 const clap_plugin_factory_t kFactory = {factory_count, factory_get, factory_create};
 
+#if defined(__APPLE__)
+// clap-wrapper's AUv2 factory info: the AUv2 build (CMakeLists.txt, "AUv2 via clap-wrapper") reads it
+// from the built .clap to make one Audio Unit per plugin, each a MIDI effect ("aumi", Logic's MIDI FX)
+// under Unlikelyware's "nLKL". The subtypes are in kPlugins' order and never change once shipped
+// (Logic finds a saved project's plugins by them); a new plugin appends its own.
+const char* const kAuv2Subtypes[] = {"NGCl", "NGCh", "NGGr", "NGBs", "NGBf"};
+static_assert(sizeof(kAuv2Subtypes) / sizeof(kAuv2Subtypes[0]) == kPluginCount, "one AUv2 subtype per plugin");
+
+bool auv2_get_info(const clap_plugin_factory_as_auv2_t*, std::uint32_t index, clap_plugin_info_as_auv2_t* info) {
+    if (index >= kPluginCount) return false;
+    std::memcpy(info->au_type, "aumi", 5);
+    std::memcpy(info->au_subt, kAuv2Subtypes[index], 5);
+    return true;
+}
+
+const clap_plugin_factory_as_auv2_t kAuv2Factory = {"nLKL", "Unlikelyware", auv2_get_info};
+#endif
+
 bool entry_init(const char*) { return true; }
 void entry_deinit() {}
 
 const void* entry_get_factory(const char* factoryId) {
-    return std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_ID) == 0 ? &kFactory : nullptr;
+    if (std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_ID) == 0) return &kFactory;
+#if defined(__APPLE__)
+    if (std::strcmp(factoryId, CLAP_PLUGIN_FACTORY_INFO_AUV2) == 0) return &kAuv2Factory;
+#endif
+    return nullptr;
 }
 
 } // namespace

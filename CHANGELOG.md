@@ -11,6 +11,10 @@ All notable changes to NoteGran. Versions follow the git tags; the format is
   expression) moves its whole chord with it, keeping the chord's shape, whether the slide
   lands on the scale or off it. A tuning sent with the note-on picks the chord where the note
   really is.
+- An AUv2 build on macOS: `NoteGran.component`, with Cloud, Chords, Grid, Burst and Buffer each
+  an AUv2 MIDI effect (`aumi`, Logic's MIDI FX), built through Unlikelyware's clap-wrapper fork. It keeps MIDI 2.0, so microtonal notes
+  (Pitch 7.9) reach the next plugin unrounded. `NOTEGRAN_BUILD_AUV2` (on on macOS) and
+  `install-auv2`.
 
 ### Fixed
 

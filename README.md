@@ -10,7 +10,7 @@ synth after it makes the sound; NoteGran makes no audio.
 | | |
 |---|---|
 | Effects | Cloud, Chords, Grid, Burst and Buffer, in one `.clap` |
-| Formats | CLAP |
+| Formats | CLAP. AUv2 (macOS) builds from source; ready-built in 0.9.1 |
 | Platforms | Linux x86-64, macOS 26 or later on Apple Silicon. No Windows |
 | Version | 0.9.0 (preview) |
 | License | MIT |

@@ -7,3 +7,8 @@
 [submodule "external/dpf"]
 	path = external/dpf
 	url = https://github.com/erickampman/DPF.git
+[submodule "external/clap-wrapper"]
+	path = external/clap-wrapper
+	url = https://github.com/erickampman/clap-wrapper.git
+	branch = unlikelyware
+	ignore = dirty
