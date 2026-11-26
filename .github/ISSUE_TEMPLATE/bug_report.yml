@@ -11,7 +11,7 @@ body:
     attributes:
       label: Version
       description: The plugin's version, from the download's file name or the host's plugin list
-      placeholder: "0.9.0"
+      placeholder: "0.9.1"
     validations:
       required: true
   - type: dropdown

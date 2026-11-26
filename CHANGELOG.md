@@ -5,6 +5,8 @@ All notable changes to NoteGran. Versions follow the git tags; the format is
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-26
+
 ### Added
 
 - Chords follows a slide: a held note's Pitch 7.25 (KeyboardEDO's Glide, a CLAP tuning
