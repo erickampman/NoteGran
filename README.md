@@ -55,15 +55,21 @@ in your browser.
 | Bitwig | Yes (CLAP notes with tuning expressions) |
 | REAPER | No: plays the output as 12-EDO |
 
+In REAPER, use the CLAP: REAPER doesn't pass on an AU MIDI effect's output, so the AUv2 plays
+nothing into the synth after it. The AUv2 is for Logic's MIDI FX slot.
+
 ## Installing
 
-The download holds `NoteGran.clap`. Put it in your CLAP folder (create the folder if it isn't there),
-then rescan plugins in your host:
+The download holds `NoteGran.clap` and, on macOS, `NoteGran.component` (AUv2). Put each one you need
+in its format's folder (create the folder if it isn't there), then rescan plugins in your host:
 
-| | Linux | macOS |
-|---|---|---|
-| For you | `~/.clap` | `~/Library/Audio/Plug-Ins/CLAP` |
-| For every user | `/usr/lib/clap` | `/Library/Audio/Plug-Ins/CLAP` |
+| Format | Linux, for you | Linux, every user | macOS, for you | macOS, every user |
+|---|---|---|---|---|
+| CLAP | `~/.clap` | `/usr/lib/clap` | `~/Library/Audio/Plug-Ins/CLAP` | `/Library/Audio/Plug-Ins/CLAP` |
+| AUv2 | — | — | `~/Library/Audio/Plug-Ins/Components` | `/Library/Audio/Plug-Ins/Components` |
+
+The `.component` is a bundle (a folder): move it whole. It holds all five effects, for Logic's MIDI
+FX slot.
 
 On macOS, `~/Library` is hidden in Finder: Go ▸ Go to Folder opens it.
 
